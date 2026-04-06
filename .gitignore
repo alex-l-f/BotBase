@@ -1,0 +1,20 @@
+.env
+**/__pycache__/*
+.vscode/*
+venv/
+.DS_Store
+
+# Logs
+logs/
+logs.db
+logs.db-shm
+logs.db-wal
+
+# Model artifacts
+model_cache/*
+*.pkl
+*.bin
+*.pt
+
+# Aider
+.aider*
