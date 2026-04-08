@@ -16,5 +16,5 @@ model_cache/*
 *.bin
 *.pt
 
-# Aider
-.aider*
+# Resource Embeddings
+processed_resources/*
