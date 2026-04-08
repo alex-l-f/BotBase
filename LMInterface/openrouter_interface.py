@@ -95,13 +95,13 @@ class OpenRouter_Interface:
         "qwen/qwen3-235b-a22b": 40960,
     }
 
-    def __init__(self, system_prompt: str, model: str = "qwen/qwq-32b-preview", url: str = "http://localhost:8000/v1", reasoning: bool = True):
+    def __init__(self, system_prompt: str, model: str = "google/gemma-4-31b-it", url: str = "http://localhost:8000/v1", reasoning: bool = True):
         """
         Initialize the VLLM Interface VIA the OpenAI API.
 
         Args:
             system_prompt (str): The system prompt to initialize the conversation.
-            model (str): The model to use for the API. Defaults to "qwen/qwq-32b-preview".
+            model (str): The model to use for the API. Defaults to "google/gemma-4-31b-it".
             url (str): The base URL for the OpenRouter API. Defaults to "http://localhost:8000/v1".
             reasoning (bool): Whether to enable reasoning capabilities. Defaults to True.
         """
@@ -295,8 +295,6 @@ class OpenRouter_Interface:
                         extra_body={
                             "chat_template_kwargs": {"enable_thinking": reasoning},
                             "guided_json": json_schema.model_json_schema() if json_schema else None,
-                            "top_k": 20,
-                            "min_p": 0,
                         }
                     )
 
