@@ -17,11 +17,11 @@ load_tools()
 # Pick one LLM backend
 ########################
 
-#from LMInterface import OpenRouter_Interface as LLMInterface
-#from LMInterface.openrouter_interface import Conversation
+from LMInterface import OpenRouter_Interface as LLMInterface
+from LMInterface.openrouter_interface import Conversation
 
-from LMInterface import LCPP_Interface as LLMInterface
-from LMInterface.lcpp_interface import Conversation
+#from LMInterface import LCPP_Interface as LLMInterface
+#from LMInterface.lcpp_interface import Conversation
 
 
 def clean_tool_calls(text: str) -> str:
