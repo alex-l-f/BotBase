@@ -19,9 +19,6 @@ load_tools()
 #from LMInterface import OpenRouter_Interface as LLMInterface
 #from LMInterface.openrouter_interface import Conversation
 
-#from LMInterface import VLLM_Interface as LLMInterface
-#from LMInterface.vllm_interface import Conversation
-
 from LMInterface import LCPP_Interface as LLMInterface
 from LMInterface.lcpp_interface import Conversation
 
