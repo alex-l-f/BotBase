@@ -7,6 +7,9 @@ A modular, expandable chatbot framework built around an LLM agent loop with a pl
 ```
 agent.py              Core agent loop — runs the LLM, dispatches tool calls
 server.py             Flask API server — exposes chat endpoints
+embedding_service.py  FastAPI microservice — hybrid HNSW + BM25 search
+embedding_client.py   Client for the embedding service (used by tools)
+import_resources.py   Importer script — converts .txt/.json into searchable resources
 
 prompts/              Prompt system (profile-based)
   profiles.py         Maps profile names to prompt modules + toolsets
@@ -17,6 +20,8 @@ tools/                Tool plugin system
   toolsets.py         Named groups of tools for different profiles
   send_message.py     Sends a message back to the user
   finish_turn.py      Ends the current turn, lets the user reply
+  search_resources.py Searches the resource database via embeddings
+  examine_resource.py Returns full details for a specific resource
 
 LMInterface/          LLM backend adapters
   lcpp_interface.py   llama.cpp (via OpenAI-compatible API)
@@ -35,12 +40,24 @@ LMInterface/          LLM backend adapters
 
 2. Choose your LLM backend by uncommenting the appropriate import in `agent.py`.
 
-3. Run the server:
+3. Import your resources (requires `sentence-transformers`, `hnswlib`, `torch`):
+   ```bash
+   python import_resources.py ./your_resources/ --output ./processed_resources/your_provider
+   ```
+   This reads `.txt` and `.json` files from the input directory, embeds them, and writes the index and database to the output directory. See [Resource Search](#resource-search) for input format details.
+
+4. Start the embedding service (must be running before the chatbot server):
+   ```bash
+   uvicorn embedding_service:app --host 0.0.0.0 --port 8200 --workers 1
+   ```
+   Make sure your output directory from step 3 is listed in `PROVIDER_DIRS` in `embedding_service.py`.
+
+5. Start the chatbot server:
    ```bash
    python server.py
    ```
 
-4. The API is available at `http://localhost:5551`.
+6. Open `http://localhost:5551` in your browser.
 
 ## API Endpoints
 
@@ -82,6 +99,42 @@ Tools are auto-discovered on startup — no registration code needed.
 
 1. Create a new prompt file in `prompts/` with a `PROMPT` string.
 2. Register it in `prompts/profiles.py` with a name and toolset.
+
+## Resource Search
+
+The framework includes a hybrid search system for retrieving resources from an embedded database.
+
+### Importing Resources
+
+Use `import_resources.py` to convert a directory of `.txt` and `.json` files into the format the embedding service expects:
+
+```bash
+python import_resources.py ./my_resources/ --output ./processed_resources/my_provider
+```
+
+**Supported input formats:**
+
+- **`.json`** — A single object or array of objects with `title` and `description` fields. Optional: `physical_address`, `portal_url`, `latitude`, `longitude`.
+- **`.txt`** — One resource per file. The filename becomes the title; file contents become the description.
+
+The script produces `database.db`, `embeddings.bin`, `embedded_texts.pkl`, and `text_to_resource_mapping.pkl` in the output directory.
+
+### Running the Embedding Service
+
+The embedding service must be running for both importing and searching:
+
+```bash
+uvicorn embedding_service:app --host 0.0.0.0 --port 8200 --workers 1
+```
+
+Add your output directory to `PROVIDER_DIRS` in `embedding_service.py` so it loads on startup.
+
+### Search Tools
+
+Both tools are included in the default toolset:
+
+- **`search_resources`** — Searches the resource database with a query string and returns matching results.
+- **`examine_resource`** — Returns full details for a specific resource by ID.
 
 ## Customization
 
