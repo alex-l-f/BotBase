@@ -9,6 +9,7 @@ from queue import Queue
 import uuid
 from tools import load_tools, get_schemas, dispatch
 from prompts import get_prompt, get_toolset
+from embedding_client import EmbeddingSearchClient
 
 load_tools()
 
@@ -127,12 +128,18 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
         "response_text": "",
     }
 
+    embedding_search = EmbeddingSearchClient()
+
     context = {
         "message_queues": message_queues,
         "chat_id": chat_id,
         "last_user_message": last_user_message,
         "conversation_history": conversation.history,
         "state": state,
+        "embedding_search": embedding_search,
+        "existing_resources": [],
+        "database": "processed_resources",
+        "fields_to_remove": ["embedding"],
     }
 
     tool_schemas = get_schemas(toolset)

@@ -5,6 +5,8 @@ TOOLSETS: dict[str, list[str]] = {
     "default": [
         "send_message",
         "finish_turn",
+        "search_resources",
+        "examine_resource",
     ],
     # Example: add custom toolsets for different bot profiles
     # "my_bot": [
