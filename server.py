@@ -133,6 +133,16 @@ def chat_profile():
     })
 
 
+@app.route('/')
+def serve_frontend():
+    return send_from_directory('static', 'index.html')
+
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('static', filename)
+
+
 @app.route('/api/log-event', methods=['POST'])
 def log_event_endpoint():
     data = request.json
