@@ -12,7 +12,7 @@ expected by embedding_service.py:
 
 Usage:
     python import_resources.py <input_dir> [--output <output_dir>]
-                                           [--embedding-url <url>]
+                                           [--model <model_name>]
 
 Input formats
 -------------
@@ -34,7 +34,38 @@ import textwrap
 
 import hnswlib
 import numpy as np
-import requests
+import torch
+from sentence_transformers import SentenceTransformer
+
+DEFAULT_MODEL = os.getenv("EMBEDDING_MODEL", "google/embeddinggemma-300m")
+
+
+def load_model(model_name: str) -> SentenceTransformer:
+    """Load the SentenceTransformer model directly."""
+    print(f"Loading model {model_name} ...")
+    if torch.cuda.is_available():
+        model_kwargs = {"device_map": "auto", "dtype": torch.bfloat16}
+        device = "cuda"
+    else:
+        model_kwargs = {}
+        device = "cpu"
+    model = SentenceTransformer(
+        model_name,
+        device=device,
+        model_kwargs=model_kwargs,
+        tokenizer_kwargs={"padding_side": "left"},
+    )
+    print(f"  Model loaded on {device}")
+    return model
+
+
+def encode_texts(model: SentenceTransformer, texts: list[str]) -> np.ndarray:
+    """Encode texts directly using the model."""
+    if hasattr(model, "encode_document"):
+        emb = model.encode_document(texts, show_progress_bar=True)
+    else:
+        emb = model.encode(texts, show_progress_bar=True)
+    return emb.astype(np.float32)
 
 
 def read_resources(input_dir: str) -> list[dict]:
@@ -110,21 +141,13 @@ def build_database(resources: list[dict], db_path: str) -> list[int]:
     return ids
 
 
-def encode_texts(texts: list[str], service_url: str) -> np.ndarray:
-    """Encode texts via the embedding microservice /encode endpoint."""
-    # Batch in chunks of 64 to avoid overloading the service
-    all_embeddings = []
-    batch_size = 64
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
-        resp = requests.post(
-            f"{service_url}/encode",
-            json={"texts": batch, "mode": "document"},
-            timeout=120,
-        )
-        resp.raise_for_status()
-        all_embeddings.extend(resp.json()["embeddings"])
-    return np.array(all_embeddings, dtype=np.float32)
+def encode_texts(model: SentenceTransformer, texts: list[str]) -> np.ndarray:
+    """Encode texts directly using the model."""
+    if hasattr(model, "encode_document"):
+        emb = model.encode_document(texts, show_progress_bar=True)
+    else:
+        emb = model.encode(texts, show_progress_bar=True)
+    return emb.astype(np.float32)
 
 
 def build_hnsw_index(embeddings: np.ndarray, output_path: str):
@@ -149,9 +172,9 @@ def main():
         help="Output directory (default: ./processed_resources/imported)",
     )
     parser.add_argument(
-        "--embedding-url",
-        default="http://localhost:8200",
-        help="URL of the embedding microservice (default: http://localhost:8200)",
+        "--model", "-m",
+        default=DEFAULT_MODEL,
+        help=f"SentenceTransformer model name (default: {DEFAULT_MODEL})",
     )
     args = parser.parse_args()
 
@@ -159,7 +182,10 @@ def main():
         print(f"Error: {args.input_dir} is not a directory")
         return 1
 
-    # 1. Read resources
+    # 1. Load embedding model
+    model = load_model(args.model)
+
+    # 2. Read resources
     print(f"Reading resources from {args.input_dir} ...")
     resources = read_resources(args.input_dir)
     if not resources:
@@ -167,7 +193,7 @@ def main():
         return 1
     print(f"  Found {len(resources)} resources")
 
-    # 2. Create output directory and SQLite database
+    # 3. Create output directory and SQLite database
     os.makedirs(args.output, exist_ok=True)
     db_path = os.path.join(args.output, "database.db")
     if os.path.exists(db_path):
@@ -175,7 +201,7 @@ def main():
     print("Building database ...")
     resource_ids = build_database(resources, db_path)
 
-    # 3. Build text chunks — each resource produces one text segment
+    # 4. Build text chunks — each resource produces one text segment
     #    combining title + description for embedding
     embedded_texts: dict[int, str] = {}
     text_to_resource_id: dict[int, int] = {}
@@ -184,18 +210,18 @@ def main():
         embedded_texts[text_idx] = chunk
         text_to_resource_id[text_idx] = res_id
 
-    # 4. Encode via embedding service
+    # 5. Encode texts
     print(f"Encoding {len(embedded_texts)} text chunks ...")
     texts_ordered = [embedded_texts[i] for i in range(len(embedded_texts))]
-    embeddings = encode_texts(texts_ordered, args.embedding_url)
+    embeddings = encode_texts(model, texts_ordered)
     print(f"  Embedding shape: {embeddings.shape}")
 
-    # 5. Build HNSW index
+    # 6. Build HNSW index
     index_path = os.path.join(args.output, "embeddings.bin")
     print("Building HNSW index ...")
     build_hnsw_index(embeddings, index_path)
 
-    # 6. Save pickles
+    # 7. Save pickles
     with open(os.path.join(args.output, "embedded_texts.pkl"), "wb") as f:
         pickle.dump(embedded_texts, f)
     with open(os.path.join(args.output, "text_to_resource_mapping.pkl"), "wb") as f:
