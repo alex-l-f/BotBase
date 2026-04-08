@@ -108,7 +108,7 @@ def start_conversation(system_prompt: str = None, profile: str = None):
 
 
 def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str = None, system_prompt: str = None, toolset=None, profile: str = None):
-    llm_interface = LLMInterface("", model=model)
+    llm_interface = LLMInterface("") #stick to defualt for now until integrated into the frontend
     conversation = start_conversation(system_prompt, profile)
     if toolset is None:
         toolset = get_toolset(profile or "default")
@@ -138,7 +138,7 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
         "state": state,
         "embedding_search": embedding_search,
         "existing_resources": [],
-        "database": "processed_resources",
+        "database": "imported",
         "fields_to_remove": ["embedding"],
     }
 
