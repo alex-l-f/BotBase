@@ -7,7 +7,7 @@ class SearchResources(BaseTool):
         "function": {
             "name": "search_resources",
             "description": (
-                "Search the resource portal for useful mental health resources. "
+                "Search the resource collection for helpful documents. "
                 "If used multiple times, will avoid returning resources already acquired "
                 "to allow for new resources to be discovered. Only call this if the user "
                 "requests it, or if you ask them if searching is okay. This process can take a while."
