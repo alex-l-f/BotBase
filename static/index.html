@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BotBase Chat</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f5f5;
+    --surface: #ffffff;
+    --border: #e0e0e0;
+    --text: #1a1a1a;
+    --text-muted: #666;
+    --user-bg: #0066cc;
+    --user-text: #fff;
+    --bot-bg: #e8e8e8;
+    --bot-text: #1a1a1a;
+    --accent: #0066cc;
+    --tool-bg: #faf8f5;
+    --tool-border: #d4c9a8;
+    --tool-text: #5a5040;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  header h1 { font-size: 16px; font-weight: 600; }
+
+  #profile-select {
+    margin-left: auto;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--surface);
+  }
+
+  #chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .message {
+    max-width: 70%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  .message.user {
+    align-self: flex-end;
+    background: var(--user-bg);
+    color: var(--user-text);
+    border-bottom-right-radius: 4px;
+  }
+
+  .message.assistant {
+    align-self: flex-start;
+    background: var(--bot-bg);
+    color: var(--bot-text);
+    border-bottom-left-radius: 4px;
+  }
+
+  .tool-group {
+    align-self: center;
+    width: 85%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tool-call, .tool-result {
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    line-height: 1.4;
+    background: var(--tool-bg);
+    border: 1px solid var(--tool-border);
+    color: var(--tool-text);
+  }
+
+  .tool-call .tool-name {
+    font-weight: 600;
+    color: #7a6530;
+  }
+
+  .tool-call .tool-args {
+    margin-top: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    opacity: 0.85;
+  }
+
+  .tool-result {
+    background: #f5f5f2;
+    border-style: dashed;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .tool-result.collapsed {
+    max-height: 36px;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .tool-result.collapsed::after {
+    content: "click to expand";
+    position: absolute;
+    bottom: 0; right: 0;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: linear-gradient(90deg, transparent, #f5f5f2 40%);
+  }
+
+  #typing-indicator {
+    align-self: flex-start;
+    padding: 10px 14px;
+    font-size: 14px;
+    color: var(--text-muted);
+    display: none;
+  }
+
+  #typing-indicator.visible { display: block; }
+
+  #input-area {
+    padding: 12px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  #message-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    resize: none;
+    max-height: 120px;
+    line-height: 1.4;
+  }
+
+  #message-input:focus { border-color: var(--accent); }
+
+  #send-btn {
+    padding: 10px 20px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  #send-btn:disabled { opacity: 0.5; cursor: default; }
+  #send-btn:hover:not(:disabled) { filter: brightness(1.1); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BotBase</h1>
+  <select id="profile-select"><option value="default">default</option></select>
+</header>
+
+<div id="chat-area">
+  <div id="typing-indicator">Thinking...</div>
+</div>
+
+<div id="input-area">
+  <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
+  <button id="send-btn">Send</button>
+</div>
+
+<script>
+const API = window.location.origin;
+const chatArea = document.getElementById('chat-area');
+const typingIndicator = document.getElementById('typing-indicator');
+const input = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-btn');
+const profileSelect = document.getElementById('profile-select');
+
+let chatId = null;
+let fullContext = [];
+let polling = false;
+let renderedCount = 0; // how many fullContext entries we've rendered
+
+// Auto-resize textarea
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+});
+
+// Enter to send, Shift+Enter for newline
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+
+sendBtn.addEventListener('click', send);
+
+// Load profiles on start
+fetch(`${API}/api/profiles`)
+  .then(r => r.json())
+  .then(data => {
+    profileSelect.innerHTML = data.profiles
+      .map(p => `<option value="${p}">${p}</option>`)
+      .join('');
+  })
+  .catch(() => {});
+
+
+// --- Rendering ---
+
+function formatArgs(args) {
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args); } catch { return args; }
+  }
+  // Compact single-value args on one line, multi on separate lines
+  const keys = Object.keys(args);
+  if (keys.length <= 1) {
+    return keys.map(k => `${k}: ${JSON.stringify(args[k])}`).join('');
+  }
+  return keys.map(k => `  ${k}: ${JSON.stringify(args[k])}`).join('\n');
+}
+
+function renderToolCalls(toolCalls) {
+  const group = document.createElement('div');
+  group.className = 'tool-group';
+  for (const tc of toolCalls) {
+    const fn = tc.function || tc;
+    const name = fn.name || tc.name || '?';
+    const args = fn.arguments || {};
+
+    const el = document.createElement('div');
+    el.className = 'tool-call';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'tool-name';
+    nameSpan.textContent = name;
+    el.appendChild(nameSpan);
+
+    const parsedArgs = typeof args === 'string' ? (() => { try { return JSON.parse(args); } catch { return args; } })() : args;
+    const argStr = formatArgs(parsedArgs);
+    if (argStr) {
+      const argsDiv = document.createElement('div');
+      argsDiv.className = 'tool-args';
+      argsDiv.textContent = argStr;
+      el.appendChild(argsDiv);
+    }
+
+    group.appendChild(el);
+  }
+  chatArea.insertBefore(group, typingIndicator);
+}
+
+function renderToolResult(content) {
+  const text = typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content);
+  const group = document.createElement('div');
+  group.className = 'tool-group';
+  const el = document.createElement('div');
+  el.className = 'tool-result';
+  if (text.length > 120) el.classList.add('collapsed');
+  el.textContent = text;
+  el.addEventListener('click', () => el.classList.remove('collapsed'));
+  group.appendChild(el);
+  chatArea.insertBefore(group, typingIndicator);
+}
+
+function appendMessage(role, content) {
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+  div.textContent = content;
+  chatArea.insertBefore(div, typingIndicator);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function renderContext(messages) {
+  // Render new messages from fullContext starting at renderedCount
+  for (let i = renderedCount; i < messages.length; i++) {
+    const msg = messages[i];
+
+    if (msg.role === 'user') {
+      appendMessage('user', msg.content);
+    } else if (msg.role === 'assistant') {
+      // Show tool calls if present
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        renderToolCalls(msg.tool_calls);
+      }
+      // Show text content if any (skip empty content from tool-only turns)
+      if (msg.content && msg.content.trim()) {
+        appendMessage('assistant', msg.content);
+      }
+    } else if (msg.role === 'tool') {
+      renderToolResult(msg.content);
+    }
+  }
+  renderedCount = messages.length;
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+
+// --- State ---
+
+function setLoading(on) {
+  sendBtn.disabled = on;
+  input.disabled = on;
+  typingIndicator.classList.toggle('visible', on);
+  if (on) chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+async function ensureChat() {
+  if (chatId) return;
+  const resp = await fetch(`${API}/api/start-chat`, { method: 'POST' });
+  const data = await resp.json();
+  chatId = data.chat_id;
+}
+
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  poll();
+}
+
+async function poll() {
+  if (!polling) return;
+  try {
+    const resp = await fetch(`${API}/api/get-messages/${chatId}`);
+    const data = await resp.json();
+
+    if (data.is_complete) {
+      polling = false;
+      // Don't render polled messages — we'll render from fullContext instead
+      return;
+    }
+  } catch (e) {
+    // Retry on transient errors
+  }
+  setTimeout(poll, 500);
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  setLoading(true);
+
+  try {
+    await ensureChat();
+
+    fullContext.push({ role: 'user', content: text });
+    // Render the user message immediately
+    renderContext(fullContext);
+
+    const profile = profileSelect.value;
+    startPolling();
+
+    const resp = await fetch(`${API}/api/chat-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, profile, fullContext }),
+    });
+
+    const data = await resp.json();
+    polling = false;
+    fullContext = data.messages?.full_context || fullContext;
+
+    // Render all new messages (assistant replies, tool calls, tool results)
+    renderContext(fullContext);
+    setLoading(false);
+    input.focus();
+  } catch (e) {
+    polling = false;
+    appendMessage('assistant', 'Error: Could not reach the server.');
+    setLoading(false);
+  }
+}
+
+input.focus();
+</script>
+</body>
+</html>
