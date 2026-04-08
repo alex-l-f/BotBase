@@ -51,7 +51,7 @@ from sentence_transformers import SentenceTransformer
 # ---------------------------------------------------------------------------
 MODEL_NAME = os.getenv("EMBEDDING_MODEL", "google/embeddinggemma-300m")
 PROVIDER_DIRS = [
-    "./processed_resources",
+    "./processed_resources/imported",
 ]
 BATCH_WINDOW_MS = int(os.getenv("BATCH_WINDOW_MS", "10"))
 MAX_BATCH_SIZE = int(os.getenv("MAX_BATCH_SIZE", "64"))
