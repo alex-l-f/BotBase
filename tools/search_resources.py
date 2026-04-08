@@ -9,8 +9,7 @@ class SearchResources(BaseTool):
             "description": (
                 "Search the resource collection for helpful documents. "
                 "If used multiple times, will avoid returning resources already acquired "
-                "to allow for new resources to be discovered. Only call this if the user "
-                "requests it, or if you ask them if searching is okay. This process can take a while."
+                "to allow for new resources to be discovered."
             ),
             "parameters": {
                 "type": "object",
