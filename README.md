@@ -27,8 +27,6 @@ LMInterface/          LLM backend adapters
   lcpp_interface.py   llama.cpp (via OpenAI-compatible API)
   openai_interface.py OpenAI API
   openrouter_interface.py  OpenRouter API
-  vllm_interface.py   vLLM inference server
-  mlcllm_interface.py MLC LLM
 ```
 
 ## Quick Start
