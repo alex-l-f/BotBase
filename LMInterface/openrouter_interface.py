@@ -83,6 +83,7 @@ class OpenRouter_Interface:
         "google/gemini-2.0-flash-thinking-exp:free": "google/flan-t5-base",
         "meta-llama/llama-3.3-70b-instruct": "meta-llama/Llama-3.3-70B-Instruct",
         "meta-llama/llama-3.1-405b-instruct": "meta-llama/Llama-3.1-405B-Instruct",
+        "google/gemma-4-31b-it": "google/gemma-4-31b-it"
     }
 
     MODEL_TOKEN_LIMIT_MAP = {
@@ -93,6 +94,7 @@ class OpenRouter_Interface:
         "meta-llama/llama-3.3-70b-instruct": 131072,
         "meta-llama/llama-3.1-405b-instruct": 32000,
         "qwen/qwen3-235b-a22b": 40960,
+        "google/gemma-4-31b-it": 256000
     }
 
     def __init__(self, system_prompt: str, model: str = "google/gemma-4-31b-it", url: str = "http://localhost:8000/v1", reasoning: bool = True):
