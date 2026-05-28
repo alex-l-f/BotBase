@@ -49,6 +49,12 @@ class SearchResources(BaseTool):
         database = context["database"]
         fields_to_remove = context["fields_to_remove"]
 
+        if not database:
+            return (
+                "ERROR: No topic library is active. Use switch_mode to "
+                "select a topic before searching for resources."
+            )
+
         search_terms = arguments["query"]
         language = arguments.get("language", "all")
         existing_ids = {r["oid"] for r in existing_resources if "oid" in r}

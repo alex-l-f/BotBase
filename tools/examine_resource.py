@@ -45,7 +45,7 @@ class ExamineResource(BaseTool):
                     oid = int(resource_id[4:])
                 except ValueError:
                     pass
-            if oid is not None:
+            if oid is not None and context.get("database"):
                 context["embedding_search"].switch_provider(context["database"])
                 resource_details = context["embedding_search"].get_resource_details(oid)
                 if resource_details:
