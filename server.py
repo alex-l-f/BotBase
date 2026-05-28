@@ -1,7 +1,19 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file, abort
 from flask_cors import CORS
-from agent import get_LM_response, create_chat_session, get_messages, is_chat_complete, reset_complete
+from agent import (
+    get_LM_response,
+    create_chat_session,
+    get_messages,
+    is_chat_complete,
+    reset_complete,
+    chat_status,
+    set_backend,
+    get_active_backend,
+    BACKENDS,
+)
 from prompts import list_profiles
+from prompts.topics import TOPICS, ROUTER_MODE
+import argparse
 import os
 import json
 import mimetypes
@@ -11,6 +23,10 @@ mimetypes.add_type('application/javascript', '.js')
 import sqlite3
 from datetime import datetime
 import threading
+
+# Where the source files referenced by `source_path` live.
+DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
+PROCESSED_ROOT = os.path.join(os.path.dirname(__file__), 'processed_resources')
 
 
 class EventLogger:
@@ -108,7 +124,13 @@ def api_profiles():
 
 @app.route('/api/chat-profile', methods=['POST'])
 def chat_profile():
-    """Chat using a named profile (prompt + toolset combination)."""
+    """Chat using a named profile (prompt + toolset combination).
+
+    For topic-aware profiles, the *current* mode is held server-side in
+    chat_status[chat_id]['mode'] so it survives across turns even though
+    each request is stateless from the client's perspective. The first
+    call seeds the mode from the request; subsequent calls use whatever
+    switch_mode last set, ignoring the client-supplied profile."""
     data = request.json
     chat_id = data.get('chat_id')
     if not chat_id:
@@ -117,20 +139,110 @@ def chat_profile():
     logger.log_event(chat_id, "request_response")
 
     model = data.get('model')
-    profile = data.get('profile', "default")
+    requested_profile = data.get('profile', "default")
+
+    # Resolve effective profile for this turn.
+    status = chat_status.setdefault(chat_id, {"is_complete": False})
+    stored_mode = status.get("mode")
+    if stored_mode in TOPICS:
+        effective_profile = stored_mode
+    elif requested_profile in TOPICS:
+        # First topic-aware call for this chat — seed the stored mode.
+        status["mode"] = requested_profile
+        effective_profile = requested_profile
+    else:
+        # Legacy non-topic profile (e.g. 'default'); don't track mode.
+        effective_profile = requested_profile
 
     response_text, full_text, full_context = get_LM_response(
-        data.get('fullContext', []), chat_id, model, profile=profile
+        data.get('fullContext', []), chat_id, model, profile=effective_profile
     )
 
     logger.log_event(chat_id, "send_response")
 
     return jsonify({
         "chat_id": chat_id,
-        "profile": profile,
+        "profile": effective_profile,
+        "mode": status.get("mode"),
         "message": {"content": response_text},
         "messages": {"content": full_text, "full_context": full_context}
     })
+
+
+@app.route('/api/get-mode/<chat_id>', methods=['GET'])
+def get_mode(chat_id):
+    """Return the chatbot's current topic mode for this chat."""
+    status = chat_status.get(chat_id) or {}
+    mode = status.get("mode")
+    label = TOPICS.get(mode, {}).get("label") if mode else None
+    return jsonify({
+        "mode": mode,
+        "label": label,
+    })
+
+
+@app.route('/api/topics', methods=['GET'])
+def get_topics():
+    """List available topic modes (for any UI that wants them)."""
+    return jsonify({
+        "router": ROUTER_MODE,
+        "topics": [
+            {
+                "key": k,
+                "label": v["label"],
+                "description": v["short_description"],
+                "provider": v["provider"],
+            }
+            for k, v in TOPICS.items()
+        ],
+    })
+
+
+@app.route('/api/file/<provider>/<int:resource_id>', methods=['GET'])
+def serve_resource_file(provider, resource_id):
+    """Stream a topic resource file by (provider, integer resource id).
+
+    The portal_url stored in each topic's database.db points at this route,
+    so search_resources output already carries working URLs."""
+    db_path = os.path.join(PROCESSED_ROOT, provider, 'database.db')
+    if not os.path.exists(db_path):
+        abort(404, description=f"Unknown provider: {provider}")
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT source_file, source_path, source_type "
+            "FROM resources WHERE id = ?",
+            (resource_id,),
+        ).fetchone()
+        conn.close()
+    except sqlite3.Error as exc:
+        abort(500, description=f"Database error: {exc}")
+
+    if row is None:
+        abort(404, description=f"Resource {resource_id} not found in {provider}")
+
+    source_path = row["source_path"] or ""
+    if not source_path:
+        abort(404, description="Resource has no source_path")
+
+    # Resolve under DATA_ROOT and ensure no path-traversal escapes happen.
+    abs_path = os.path.abspath(os.path.join(DATA_ROOT, source_path))
+    data_root_abs = os.path.abspath(DATA_ROOT)
+    if not abs_path.startswith(data_root_abs + os.sep) and abs_path != data_root_abs:
+        abort(400, description="Invalid source path")
+    if not os.path.isfile(abs_path):
+        abort(404, description=f"File missing on disk: {source_path}")
+
+    mime, _ = mimetypes.guess_type(abs_path)
+    return send_file(
+        abs_path,
+        mimetype=mime,
+        as_attachment=False,
+        download_name=row["source_file"] or os.path.basename(abs_path),
+        conditional=True,
+    )
 
 
 @app.route('/')
@@ -153,5 +265,31 @@ def log_event_endpoint():
     return jsonify({'success': True})
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="BotBase chat server.")
+    parser.add_argument(
+        "--backend", "-b",
+        choices=sorted(BACKENDS.keys()),
+        default=os.getenv("BOTBASE_BACKEND", "openrouter"),
+        help=(
+            "Which LLM backend to use. 'openrouter' calls OpenRouter's API "
+            "(needs OPENROUTER_API_KEY in .env); 'llama_cpp' targets a local "
+            "llama.cpp server. Defaults to $BOTBASE_BACKEND, then 'openrouter'."
+        ),
+    )
+    parser.add_argument(
+        "--host", default=os.getenv("BOTBASE_HOST", "0.0.0.0"),
+        help="Host to bind (default: 0.0.0.0).",
+    )
+    parser.add_argument(
+        "--port", type=int, default=int(os.getenv("BOTBASE_PORT", "5551")),
+        help="Port to bind (default: 5551).",
+    )
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5551)
+    args = _parse_args()
+    set_backend(args.backend)
+    print(f"[server] LLM backend: {get_active_backend()}")
+    app.run(host=args.host, port=args.port)
