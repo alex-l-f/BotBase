@@ -21,6 +21,10 @@
     --tool-bg: #faf8f5;
     --tool-border: #d4c9a8;
     --tool-text: #5a5040;
+    --file-bg: #eef5ff;
+    --file-border: #b9d3f4;
+    --mode-bg: #f0e8f8;
+    --mode-text: #4a3568;
   }
 
   body {
@@ -34,15 +38,37 @@
 
   header {
     padding: 12px 16px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    background: var(--header-bg, var(--surface));
+    border-bottom: 1px solid var(--header-border, var(--border));
     display: flex;
     align-items: center;
     gap: 12px;
     flex-shrink: 0;
+    transition: background 0.3s ease, border-color 0.3s ease;
   }
 
+  /* Per-mode header tints. The data-mode attribute is set in JS by
+     setModeBadge(); each variant nudges the background and matching
+     accents so the user can feel which topic they're in without it
+     being loud. */
+  header[data-mode="coping_mental_skills"] { --header-bg: #e6f4ea; --header-border: #b9dec6; --mode-bg: #d2ecda; --mode-text: #1f5d34; --badge-border: #aed5b9; }
+  header[data-mode="coping_recovery"]      { --header-bg: #fbeed8; --header-border: #ecd6a6; --mode-bg: #f3e0b8; --mode-text: #6e5318; --badge-border: #dec391; }
+  header[data-mode="coping_stress"]        { --header-bg: #e6eef8; --header-border: #b9cce4; --mode-bg: #d4e0f1; --mode-text: #1f3f6b; --badge-border: #a9c0e0; }
+  header[data-mode="other_content"]        { --header-bg: #ece8f3; --header-border: #cdc4dd; --mode-bg: #ddd5ea; --mode-text: #423566; --badge-border: #c8bcdc; }
+  header[data-mode="performance"]          { --header-bg: #fbeee0; --header-border: #ecd0aa; --mode-bg: #f6dcb8; --mode-text: #7c4a14; --badge-border: #dfb787; }
+
   header h1 { font-size: 16px; font-weight: 600; }
+
+  #mode-badge {
+    padding: 4px 10px;
+    background: var(--mode-bg);
+    color: var(--mode-text);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--badge-border, #d6c8eb);
+    transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
 
   #profile-select {
     margin-left: auto;
@@ -51,6 +77,15 @@
     border-radius: 6px;
     font-size: 13px;
     background: var(--surface);
+  }
+
+  #reset-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: 12px;
+    cursor: pointer;
   }
 
   #chat-area {
@@ -144,6 +179,161 @@
     background: linear-gradient(90deg, transparent, #f5f5f2 40%);
   }
 
+  .file-card {
+    align-self: center;
+    width: 85%;
+    max-width: 560px;
+    padding: 12px;
+    background: var(--file-bg);
+    border: 1px solid var(--file-border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .file-card .file-header {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+
+  .file-card .file-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a3866;
+  }
+
+  .file-card .file-type {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a6a99;
+    background: #d6e6fb;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .file-card .file-note {
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .file-card video, .file-card audio {
+    width: 100%;
+    border-radius: 6px;
+  }
+
+  .file-card .file-summary {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .file-card .file-link {
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .file-card .file-link:hover { text-decoration: underline; }
+
+  .mode-divider {
+    align-self: center;
+    padding: 6px 14px;
+    background: var(--mode-bg);
+    color: var(--mode-text);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px dashed #c8b8e0;
+  }
+
+  #welcome {
+    align-self: center;
+    width: 100%;
+    max-width: 720px;
+    margin: 16px 0 8px;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+
+  #welcome.welcome-hidden { display: none; }
+
+  #welcome h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  #welcome .lead {
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin-bottom: 14px;
+  }
+
+  #welcome .can-do {
+    font-size: 13px;
+    line-height: 1.65;
+    margin-bottom: 16px;
+  }
+
+  #welcome .can-do ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  #welcome .can-do li {
+    padding: 2px 0;
+  }
+
+  #welcome .can-do .topic-tag {
+    display: inline-block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-right: 6px;
+    min-width: 96px;
+  }
+
+  #welcome .chips-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+  }
+
+  #welcome .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #welcome .chip {
+    padding: 8px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    text-align: left;
+  }
+
+  #welcome .chip:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+  }
+
   #typing-indicator {
     align-self: center;
     padding: 10px 14px;
@@ -198,10 +388,38 @@
 
 <header>
   <h1>BotBase</h1>
-  <select id="profile-select"><option value="default">default</option></select>
+  <span id="mode-badge" title="Current topic mode">Router</span>
+  <select id="profile-select" title="Starting profile (only matters before the first switch_mode call)">
+    <option value="router">router</option>
+  </select>
+  <button id="reset-btn" title="Start a fresh chat session">Reset</button>
 </header>
 
 <div id="chat-area">
+  <div id="welcome">
+    <h2>Welcome to the R2MR Mental Readiness assistant</h2>
+    <p class="lead">
+      I help with stress, recovery, performance under pressure, and the mental skills behind them — all drawn from the Canadian Armed Forces' R2MR program. I can explain concepts, walk you through techniques, send you guided practices and one-page reference cards, and run quick self-assessments.
+    </p>
+    <div class="can-do">
+      <ul>
+        <li><span class="topic-tag">Stress</span> understand what's happening in your body, take the PSS, identify your coping style.</li>
+        <li><span class="topic-tag">Mental skills</span> practise breathing, mindfulness, PMR, visualization, self-talk, goal-setting.</li>
+        <li><span class="topic-tag">Recovery</span> recharge after demanding periods, take the OLBI burnout assessment.</li>
+        <li><span class="topic-tag">Performance</span> prepare for high-stakes events, mindset and confidence work.</li>
+        <li><span class="topic-tag">R2MR / sleep</span> programme overview and military shift-work / fatigue guidance.</li>
+      </ul>
+    </div>
+    <div class="chips-label">Try one of these to get started:</div>
+    <div class="chips">
+      <button class="chip" type="button">I'm stressed and want to understand what's happening to me.</button>
+      <button class="chip" type="button">Walk me through a quick breathing or relaxation exercise.</button>
+      <button class="chip" type="button">I have a big event coming up and want to be ready.</button>
+      <button class="chip" type="button">I'm feeling burned out and can't seem to recharge.</button>
+      <button class="chip" type="button">I'd like to take a self-assessment.</button>
+      <button class="chip" type="button">Tell me about R2MR.</button>
+    </div>
+  </div>
   <div id="typing-indicator">Thinking...</div>
 </div>
 
@@ -217,11 +435,17 @@ const typingIndicator = document.getElementById('typing-indicator');
 const input = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const profileSelect = document.getElementById('profile-select');
+const modeBadge = document.getElementById('mode-badge');
+const resetBtn = document.getElementById('reset-btn');
+const headerEl = document.querySelector('header');
+const welcomeEl = document.getElementById('welcome');
 
 let chatId = null;
 let fullContext = [];
 let polling = false;
-let renderedCount = 0; // how many fullContext entries we've rendered
+let renderedCount = 0;             // entries from fullContext we've rendered
+let topicLabels = {};              // mode key → human label
+let inFlightFileIds = new Set();   // resource_ids already rendered (dedupe)
 
 // Auto-resize textarea
 input.addEventListener('input', () => {
@@ -237,26 +461,48 @@ input.addEventListener('keydown', (e) => {
   }
 });
 
-sendBtn.addEventListener('click', send);
+sendBtn.addEventListener('click', () => send());
+resetBtn.addEventListener('click', resetChat);
 
-// Load profiles on start
-fetch(`${API}/api/profiles`)
+// Welcome chips: clicking a starter sends it as the user's first message.
+welcomeEl.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => send(chip.textContent.trim()));
+});
+
+// Load topics + profiles on start
+fetch(`${API}/api/topics`)
   .then(r => r.json())
   .then(data => {
-    profileSelect.innerHTML = data.profiles
-      .map(p => `<option value="${p}">${p}</option>`)
-      .join('');
+    profileSelect.innerHTML = '';
+    for (const t of data.topics) {
+      topicLabels[t.key] = t.label;
+      const opt = document.createElement('option');
+      opt.value = t.key;
+      opt.textContent = t.label;
+      profileSelect.appendChild(opt);
+    }
+    profileSelect.value = data.router || 'router';
+    setModeBadge(profileSelect.value);
   })
   .catch(() => {});
 
 
 // --- Rendering ---
 
+function setModeBadge(modeKey) {
+  modeBadge.textContent = topicLabels[modeKey] || modeKey || 'Router';
+  // Drive header tint via CSS [data-mode] selectors.
+  if (modeKey && modeKey !== 'router') {
+    headerEl.setAttribute('data-mode', modeKey);
+  } else {
+    headerEl.removeAttribute('data-mode');
+  }
+}
+
 function formatArgs(args) {
   if (typeof args === 'string') {
     try { args = JSON.parse(args); } catch { return args; }
   }
-  // Compact single-value args on one line, multi on separate lines
   const keys = Object.keys(args);
   if (keys.length <= 1) {
     return keys.map(k => `${k}: ${JSON.stringify(args[k])}`).join('');
@@ -279,7 +525,9 @@ function renderToolCalls(toolCalls) {
     nameSpan.textContent = name;
     el.appendChild(nameSpan);
 
-    const parsedArgs = typeof args === 'string' ? (() => { try { return JSON.parse(args); } catch { return args; } })() : args;
+    const parsedArgs = typeof args === 'string'
+      ? (() => { try { return JSON.parse(args); } catch { return args; } })()
+      : args;
     const argStr = formatArgs(parsedArgs);
     if (argStr) {
       const argsDiv = document.createElement('div');
@@ -294,7 +542,9 @@ function renderToolCalls(toolCalls) {
 }
 
 function renderToolResult(content) {
-  const text = typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content);
+  const text = typeof content === 'object'
+    ? JSON.stringify(content, null, 2)
+    : String(content);
   const group = document.createElement('div');
   group.className = 'tool-group';
   const el = document.createElement('div');
@@ -314,19 +564,103 @@ function appendMessage(role, content) {
   chatArea.scrollTop = chatArea.scrollHeight;
 }
 
+function renderModeSwitch(modeKey, label) {
+  const div = document.createElement('div');
+  div.className = 'mode-divider';
+  div.textContent = `Now in: ${label || modeKey}`;
+  chatArea.insertBefore(div, typingIndicator);
+  setModeBadge(modeKey);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function renderFileCard(payload) {
+  // Dedupe: a file might be re-emitted if the bot calls provide_file twice
+  // for the same resource. inFlightFileIds is reset each turn.
+  const key = `${payload.resource_id}|${payload.url}`;
+  if (inFlightFileIds.has(key)) return;
+  inFlightFileIds.add(key);
+
+  const card = document.createElement('div');
+  card.className = 'file-card';
+
+  const header = document.createElement('div');
+  header.className = 'file-header';
+  const title = document.createElement('span');
+  title.className = 'file-title';
+  title.textContent = payload.title || payload.source_file || 'Resource';
+  header.appendChild(title);
+  if (payload.source_type) {
+    const tag = document.createElement('span');
+    tag.className = 'file-type';
+    tag.textContent = payload.source_type;
+    header.appendChild(tag);
+  }
+  card.appendChild(header);
+
+  if (payload.note) {
+    const note = document.createElement('div');
+    note.className = 'file-note';
+    note.textContent = payload.note;
+    card.appendChild(note);
+  }
+
+  const url = payload.url;
+  const t = (payload.source_type || '').toLowerCase();
+
+  if (t === 'video') {
+    const video = document.createElement('video');
+    video.controls = true;
+    video.preload = 'metadata';
+    video.src = url;
+    card.appendChild(video);
+  } else if (t === 'audio') {
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.preload = 'metadata';
+    audio.src = url;
+    card.appendChild(audio);
+  } else if (t === 'pdf') {
+    // Inline link instead of <iframe> so the user can open in their reader
+    // of choice; many browsers block cross-origin PDF embeds anyway.
+    const link = document.createElement('a');
+    link.className = 'file-link';
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = `Open PDF — ${payload.source_file || 'document'}`;
+    card.appendChild(link);
+  } else {
+    const link = document.createElement('a');
+    link.className = 'file-link';
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.download = payload.source_file || '';
+    link.textContent = `Download ${payload.source_file || 'file'}`;
+    card.appendChild(link);
+  }
+
+  if (payload.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'file-summary';
+    summary.textContent = payload.summary;
+    card.appendChild(summary);
+  }
+
+  chatArea.insertBefore(card, typingIndicator);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
 function renderContext(messages) {
-  // Render new messages from fullContext starting at renderedCount
   for (let i = renderedCount; i < messages.length; i++) {
     const msg = messages[i];
 
     if (msg.role === 'user') {
       appendMessage('user', msg.content);
     } else if (msg.role === 'assistant') {
-      // Show tool calls if present
       if (msg.tool_calls && msg.tool_calls.length > 0) {
         renderToolCalls(msg.tool_calls);
       }
-      // Show text content if any (skip empty content from tool-only turns)
       if (msg.content && msg.content.trim()) {
         appendMessage('assistant', msg.content);
       }
@@ -367,9 +701,20 @@ async function poll() {
     const resp = await fetch(`${API}/api/get-messages/${chatId}`);
     const data = await resp.json();
 
+    // Render ephemeral events the server pushes during the turn (file
+    // deliveries, mode switches). Plain text 'assistant' messages will
+    // be re-rendered from full_context after the response, so skip them
+    // here to avoid duplicates.
+    for (const m of (data.messages || [])) {
+      if (m.role === 'assistant_file') {
+        renderFileCard(m);
+      } else if (m.role === 'system_event' && m.event === 'mode_switch') {
+        renderModeSwitch(m.mode, m.label);
+      }
+    }
+
     if (data.is_complete) {
       polling = false;
-      // Don't render polled messages — we'll render from fullContext instead
       return;
     }
   } catch (e) {
@@ -378,22 +723,27 @@ async function poll() {
   setTimeout(poll, 500);
 }
 
-async function send() {
-  const text = input.value.trim();
+async function send(prefilled) {
+  // Allow callers (welcome chips) to send a message without going through
+  // the textarea; otherwise read whatever the user typed.
+  const text = (prefilled !== undefined ? prefilled : input.value).trim();
   if (!text) return;
 
-  input.value = '';
-  input.style.height = 'auto';
+  if (prefilled === undefined) {
+    input.value = '';
+    input.style.height = 'auto';
+  }
+  welcomeEl.classList.add('welcome-hidden');
   setLoading(true);
 
   try {
     await ensureChat();
 
     fullContext.push({ role: 'user', content: text });
-    // Render the user message immediately
     renderContext(fullContext);
 
     const profile = profileSelect.value;
+    inFlightFileIds = new Set(); // reset per-turn dedupe set
     startPolling();
 
     const resp = await fetch(`${API}/api/chat-profile`, {
@@ -405,8 +755,8 @@ async function send() {
     const data = await resp.json();
     polling = false;
     fullContext = data.messages?.full_context || fullContext;
+    if (data.mode) setModeBadge(data.mode);
 
-    // Render all new messages (assistant replies, tool calls, tool results)
     renderContext(fullContext);
     setLoading(false);
     input.focus();
@@ -415,6 +765,19 @@ async function send() {
     appendMessage('assistant', 'Error: Could not reach the server.');
     setLoading(false);
   }
+}
+
+async function resetChat() {
+  chatId = null;
+  fullContext = [];
+  renderedCount = 0;
+  polling = false;
+  inFlightFileIds = new Set();
+  chatArea.querySelectorAll('.message, .tool-group, .file-card, .mode-divider')
+    .forEach(el => el.remove());
+  welcomeEl.classList.remove('welcome-hidden');
+  setModeBadge(profileSelect.value);
+  input.focus();
 }
 
 input.focus();
