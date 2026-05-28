@@ -9,19 +9,55 @@ from queue import Queue
 import uuid
 from tools import load_tools, get_schemas, dispatch
 from prompts import get_prompt, get_toolset
+from prompts.topics import TOPICS
 from embedding_client import EmbeddingSearchClient
+
+
+def _initial_database_for_profile(profile: str | None) -> str | None:
+    """Pick the search-provider key the agent loop should start with.
+
+    Topic profiles point at their per-topic index. The router has no library.
+    The legacy 'default' profile keeps using the original 'imported' index
+    so existing demo setups don't break.
+    """
+    if profile in TOPICS:
+        return TOPICS[profile].get("provider")
+    return "imported"
 
 load_tools()
 
-########################
-# Pick one LLM backend
-########################
+BACKENDS = {
+    "openrouter": ("LMInterface.openrouter_interface", "OpenRouter_Interface"),
+    "llama_cpp":  ("LMInterface.lcpp_interface",       "LCPP_Interface"),
+}
 
-from LMInterface import OpenRouter_Interface as LLMInterface
-from LMInterface.openrouter_interface import Conversation
+LLMInterface = None    # populated by set_backend()
+Conversation = None    # ditto
+_active_backend = None
 
-#from LMInterface import LCPP_Interface as LLMInterface
-#from LMInterface.lcpp_interface import Conversation
+
+def set_backend(name: str) -> None:
+    """Select the LLM backend to use for subsequent get_LM_response calls."""
+    global LLMInterface, Conversation, _active_backend
+    if name not in BACKENDS:
+        raise ValueError(
+            f"Unknown backend {name!r}. Choices: {sorted(BACKENDS)}"
+        )
+    module_name, class_name = BACKENDS[name]
+    import importlib
+    module = importlib.import_module(module_name)
+    LLMInterface = getattr(module, class_name)
+    Conversation = module.Conversation
+    _active_backend = name
+
+
+def get_active_backend() -> str | None:
+    return _active_backend
+
+
+# Default to OpenRouter so anything that imports this module before
+# set_backend() runs still has a working interface.
+set_backend("openrouter")
 
 
 def clean_tool_calls(text: str) -> str:
@@ -138,8 +174,9 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
         "state": state,
         "embedding_search": embedding_search,
         "existing_resources": [],
-        "database": "imported",
+        "database": _initial_database_for_profile(profile),
         "fields_to_remove": ["embedding"],
+        "chat_status": chat_status,
     }
 
     tool_schemas = get_schemas(toolset)
@@ -149,6 +186,11 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
 
         if response is None:
             response = ''
+
+        # Expose this turn's full tool-call list so individual tools can
+        # reason about siblings (e.g. finish_turn refuses to run when
+        # other tools were called in the same model response).
+        context["tools_in_response"] = tools
 
         for tool in tools:
             result = dispatch(tool["name"], tool["arguments"], context)
