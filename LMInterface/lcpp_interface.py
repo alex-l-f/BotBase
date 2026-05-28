@@ -313,6 +313,10 @@ class LCPP_Interface:
                         result["json_schema"] = result_model
 
                     if tools is not None:
+                        # The OpenAI SDK returns tool_calls=None (not []) on
+                        # text-only completions, so normalise before iterating.
+                        if response_data.tool_calls is None:
+                            response_data.tool_calls = []
                         tool_list = []
                         for i in range(len(response_data.tool_calls)):
                             response_data.tool_calls[i] = dict(response_data.tool_calls[i])

@@ -97,7 +97,7 @@ class OpenRouter_Interface:
         "google/gemma-4-31b-it": 256000
     }
 
-    def __init__(self, system_prompt: str, model: str = "google/gemma-4-31b-it", url: str = "http://localhost:8000/v1", reasoning: bool = True):
+    def __init__(self, system_prompt: str, model: str = "openai/gpt-oss-20b", url: str = "http://localhost:8000/v1", reasoning: bool = True):
         """
         Initialize the VLLM Interface VIA the OpenAI API.
 
@@ -328,6 +328,10 @@ class OpenRouter_Interface:
                         result["json_schema"] = result_model
 
                     if tools is not None:
+                        # The OpenAI SDK returns tool_calls=None (not []) on
+                        # text-only completions, so normalise before iterating.
+                        if response_data.tool_calls is None:
+                            response_data.tool_calls = []
                         tool_list = []
                         for i in range(len(response_data.tool_calls)):
                             response_data.tool_calls[i] = dict(response_data.tool_calls[i])
