@@ -13,3 +13,4 @@ model_cache/*
 *.pt
 processed_resources/*
 /data
+performance-coaching*/

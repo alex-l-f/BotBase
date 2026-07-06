@@ -14,7 +14,7 @@ import requests
 
 
 class EmbeddingSearchClient:
-    def __init__(self, service_url: str = "http://localhost:8200",
+    def __init__(self, service_url: str = "http://localhost:8201",
                  resources_root: str = "./processed_resources"):
         self.service_url = service_url.rstrip("/")
         self.resources_root = resources_root

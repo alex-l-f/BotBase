@@ -212,7 +212,6 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
 
         if len(tools) == 0 and state["has_responded"]:
             state["done"] = True
-            conversation.add_tool_message("system_message", "system_message", "Ending turn since no tools were called and a response was sent to the user.")
 
         if state["done"]:
             break

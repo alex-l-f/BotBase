@@ -337,10 +337,38 @@ class OpenRouter_Interface:
                             response_data.tool_calls[i] = dict(response_data.tool_calls[i])
                             response_data.tool_calls[i]['function'] = dict(response_data.tool_calls[i]['function'])
                             tool = response_data.tool_calls[i]
+                            # gpt-oss (harmony) tool-call parsing can leak channel
+                            # control tokens into the function name, e.g.
+                            # "search_resources<|channel|>commentary". Keep only the
+                            # real identifier before any harmony token and write it
+                            # back so the name stored in the assistant history (added
+                            # via add_assistant_block below) is clean too — otherwise
+                            # the polluted name is replayed to the model next turn.
+                            tool_name = tool['function']['name'].split("<|", 1)[0].strip()
+                            tool['function']['name'] = tool_name
+
+                            # The same leak can corrupt the arguments string. Don't
+                            # let one bad tool call blow up the whole completion and
+                            # burn the 5 retries — fall back to empty args and let the
+                            # tool's own validation surface a clean error to the model.
+                            raw_args = tool['function'].get('arguments') or "{}"
+                            try:
+                                parsed_args = json.loads(raw_args)
+                            except (json.JSONDecodeError, TypeError) as exc:
+                                print(
+                                    f"WARNING: could not parse arguments for tool "
+                                    f"{tool_name!r}: {raw_args!r} ({exc}); "
+                                    f"defaulting to {{}}"
+                                )
+                                parsed_args = {}
+                            # Normalise the stored arguments so the assistant block
+                            # replayed next turn is always valid JSON.
+                            tool['function']['arguments'] = json.dumps(parsed_args)
+
                             tool_list.append({
                                 "id": tool['id'],
-                                "name": tool['function']['name'],
-                                "arguments": json.loads(tool['function']['arguments']),
+                                "name": tool_name,
+                                "arguments": parsed_args,
                             })
                         result["tools"] = tool_list
 

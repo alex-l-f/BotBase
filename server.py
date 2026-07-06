@@ -14,9 +14,13 @@ from agent import (
 from prompts import list_profiles
 from prompts.topics import TOPICS, ROUTER_MODE
 import argparse
+import base64
+import hashlib
 import os
 import json
 import mimetypes
+import re
+from xml.etree import ElementTree
 mimetypes.add_type('application/javascript', '.mjs')
 mimetypes.add_type('application/javascript', '.js')
 
@@ -27,6 +31,10 @@ import threading
 # Where the source files referenced by `source_path` live.
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
 PROCESSED_ROOT = os.path.join(os.path.dirname(__file__), 'processed_resources')
+
+# SCORM/e-learning packages are dropped into the project root as directories
+# containing an imsmanifest.xml (e.g. an Articulate Rise export).
+SCORM_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 class EventLogger:
@@ -63,6 +71,39 @@ logger = EventLogger()
 
 app = Flask(__name__)
 CORS(app)
+
+# --- Demo password gate ---
+# Not real security: just enough to keep crawlers and passers-by from
+# burning LLM tokens. The password check sets a long-lived cookie whose
+# value is a digest of the password, so restarting the server doesn't
+# log everyone out.
+DEMO_PASSWORD = os.getenv("BOTBASE_PASSWORD", "AMIRADemo123")
+AUTH_COOKIE = "botbase_auth"
+AUTH_TOKEN = hashlib.sha256(DEMO_PASSWORD.encode()).hexdigest()
+
+
+@app.before_request
+def require_password():
+    if request.method == 'OPTIONS' or request.path == '/login':
+        return None
+    if request.cookies.get(AUTH_COOKIE) == AUTH_TOKEN:
+        return None
+    if request.path == '/':
+        return send_from_directory('static', 'login.html'), 401
+    return jsonify({"error": "Not authenticated"}), 401
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json(silent=True) or {}
+    if data.get('password') == DEMO_PASSWORD:
+        resp = jsonify({"success": True})
+        resp.set_cookie(
+            AUTH_COOKIE, AUTH_TOKEN,
+            max_age=30 * 24 * 3600, httponly=True, samesite='Lax',
+        )
+        return resp
+    return jsonify({"success": False}), 401
 
 
 @app.route('/api/start-chat', methods=['POST'])
@@ -154,6 +195,11 @@ def chat_profile():
         # Legacy non-topic profile (e.g. 'default'); don't track mode.
         effective_profile = requested_profile
 
+    # A finished turn leaves is_complete=True behind; clear it so the
+    # frontend's polling loop doesn't stop on its first fetch of the new
+    # turn (which silently dropped queued file/mode events).
+    status["is_complete"] = False
+
     response_text, full_text, full_context = get_LM_response(
         data.get('fullContext', []), chat_id, model, profile=effective_profile
     )
@@ -243,6 +289,98 @@ def serve_resource_file(provider, resource_id):
         download_name=row["source_file"] or os.path.basename(abs_path),
         conditional=True,
     )
+
+
+def _find_scorm_packages():
+    """Directories in the project root that look like SCORM packages."""
+    packages = []
+    for name in sorted(os.listdir(SCORM_ROOT)):
+        pkg_dir = os.path.join(SCORM_ROOT, name)
+        if os.path.isdir(pkg_dir) and os.path.isfile(os.path.join(pkg_dir, 'imsmanifest.xml')):
+            packages.append(name)
+    return packages
+
+
+def _manifest_title(pkg_dir):
+    """Course title from imsmanifest.xml (namespace-agnostic)."""
+    try:
+        tree = ElementTree.parse(os.path.join(pkg_dir, 'imsmanifest.xml'))
+        for el in tree.iter():
+            if el.tag.split('}')[-1] == 'title' and el.text and el.text.strip():
+                return el.text.strip()
+    except (ElementTree.ParseError, OSError):
+        pass
+    return None
+
+
+def _parse_rise_course(pkg_dir):
+    """Decode the course JSON an Articulate Rise export embeds in
+    scormcontent/index.html as a base64 blob passed to deserialize()."""
+    index_path = os.path.join(pkg_dir, 'scormcontent', 'index.html')
+    if not os.path.isfile(index_path):
+        return None
+    try:
+        with open(index_path, encoding='utf-8') as f:
+            html = f.read()
+        m = re.search(r'deserialize\("([^"]+)"\)', html)
+        if not m:
+            return None
+        return json.loads(base64.b64decode(m.group(1))).get('course')
+    except (OSError, ValueError):
+        return None
+
+
+_scorm_index_cache = None
+
+
+@app.route('/api/scorm/index', methods=['GET'])
+def scorm_index():
+    """Index of all SCORM packages: sections and deep-linkable lessons.
+
+    URLs are relative to the app mount point so the frontend can prefix
+    them with its API base (works behind a path-prefixed reverse proxy)."""
+    global _scorm_index_cache
+    if _scorm_index_cache is None:
+        modules = []
+        for pkg in _find_scorm_packages():
+            pkg_dir = os.path.join(SCORM_ROOT, pkg)
+            content_url = f"scorm/{pkg}/scormcontent/index.html"
+            title = _manifest_title(pkg_dir) or pkg
+            sections = []
+            course = _parse_rise_course(pkg_dir)
+            if course:
+                title = course.get('title') or title
+                current = None
+                for lesson in course.get('lessons', []):
+                    if lesson.get('type') == 'section':
+                        current = {"title": lesson.get('title', ''), "lessons": []}
+                        sections.append(current)
+                        continue
+                    if current is None:
+                        current = {"title": "", "lessons": []}
+                        sections.append(current)
+                    current["lessons"].append({
+                        "id": lesson.get('id'),
+                        "title": lesson.get('title', ''),
+                        "url": f"{content_url}#/lessons/{lesson.get('id')}",
+                    })
+            modules.append({
+                "package": pkg,
+                "title": title,
+                "url": content_url,
+                "sections": sections,
+            })
+        _scorm_index_cache = modules
+    return jsonify({"modules": _scorm_index_cache})
+
+
+@app.route('/scorm/<package>/<path:filename>')
+def serve_scorm(package, filename):
+    """Serve files out of a SCORM package directory."""
+    pkg_dir = os.path.join(SCORM_ROOT, package)
+    if not os.path.isfile(os.path.join(pkg_dir, 'imsmanifest.xml')):
+        abort(404, description=f"Unknown SCORM package: {package}")
+    return send_from_directory(pkg_dir, filename)
 
 
 @app.route('/')
