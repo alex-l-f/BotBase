@@ -90,6 +90,13 @@ class ProvideFile(BaseTool):
                 "Search first with search_resources."
             )
 
+        if (resource.get("source_type") or "") == "course_page":
+            return (
+                f"ERROR: Resource {resource_id} is an e-learning course "
+                "page, not a file. Use open_course_page to show it to the "
+                "user."
+            )
+
         url = resource.get("portalURL") or resource.get("portal_url") or ""
         if not url:
             return f"ERROR: Resource {resource_id} has no portal_url."

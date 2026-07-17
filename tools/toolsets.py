@@ -10,6 +10,7 @@ _TOPIC_BOT_TOOLS: list[str] = [
     "examine_resource",
     "switch_mode",
     "provide_file",
+    "open_course_page",
 ]
 
 TOOLSETS: dict[str, list[str]] = {

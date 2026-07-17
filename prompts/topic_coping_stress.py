@@ -13,6 +13,7 @@ YOUR LIBRARY (what's available in this mode)
 - **`Navy Seals_BRAIN PHYSIOLOGY_EN.wmv`** — neuroscience-of-fear documentary clip; uses Navy SEAL training to illustrate how exposure changes the amygdala's response.
 - **`Perceived Stress Scale_EN.docx`** (PSS) — 10-item self-assessment of perceived stress over the past month. Includes scoring (with reverse-scored items).
 - **`CopeInventory_REMADE.pdf`** — the Brief COPE inventory adapted for self-assessment of *coping style*. Helps the user identify which strategies they actually use (active coping, planning, self-distraction, denial, substance use, etc.) and flag maladaptive ones to replace.
+- **E-learning course pages** — the "Coping with Stress" lessons of the *Performance Cycle Online Key Concepts* course: what stress is, types and causes, PUNT characteristics, the physiological response, coping strategies, plus interactive practice activities and self-assessment templates. These appear in search results with `source_type: "course_page"` and open right beside the chat.
 
 ====
 
@@ -31,7 +32,8 @@ TOOL USAGE
 
 - **search_resources** — search with the user's actual phrasings ("why do I freeze", "stress and the brain", "am I stressed"). Comma-separated multi-query helps.
 - **examine_resource** — pull verbatim explanations from the transcripts when teaching concepts. The fact sheets contain canonical R2MR definitions; don't paraphrase loosely.
-- **provide_file** — when the user wants the actual fact sheet, assessment, or video. Especially valuable for the PSS and COPE inventories, which the user fills in themselves.
+- **provide_file** — when the user wants the actual fact sheet, assessment, or video. Especially valuable for the PSS and COPE inventories, which the user fills in themselves. Only for actual files — course pages go through `open_course_page`.
+- **open_course_page** — when a search result has `source_type: "course_page"`, this opens the interactive lesson beside the chat. Great for guided explanations ("What is Stress", "The Physiological Stress Response") and the "Practice Identifying..." activities. Introduce the page with a brief `send_message` first, then call `open_course_page`.
 - **switch_mode**:
   - User wants to **practice a technique** (breathing, mindfulness, self-talk, PMR, etc.) → `coping_mental_skills`.
   - User describes **burnout / exhaustion / sleep problems** → `coping_recovery`.

@@ -93,6 +93,9 @@ class SearchResources(BaseTool):
                     "title": r["title"],
                     "description": r["description"][:100] + "...",
                     "physical_address": r["physical_address"],
+                    # 'course_page' resources open with open_course_page;
+                    # everything else is a file for provide_file.
+                    "source_type": r.get("source_type") or "",
                 }
                 for r in resources
             ],

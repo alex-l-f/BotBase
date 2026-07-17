@@ -10,6 +10,8 @@ server.py             Flask API server — exposes chat endpoints
 embedding_service.py  FastAPI microservice — hybrid HNSW + BM25 search
 embedding_client.py   Client for the embedding service (used by tools)
 import_resources.py   Importer script — converts .txt/.json into searchable resources
+import_transcripts.py Importer for per-topic transcript JSONs (data/Transcripts/)
+import_elearning.py   Indexes e-learning course pages into the topic providers
 
 prompts/              Prompt system (profile-based)
   profiles.py         Maps profile names to prompt modules + toolsets
@@ -22,6 +24,9 @@ tools/                Tool plugin system
   finish_turn.py      Ends the current turn, lets the user reply
   search_resources.py Searches the resource database via embeddings
   examine_resource.py Returns full details for a specific resource
+  provide_file.py     Sends a resource file to the user (player / download card)
+  open_course_page.py Opens an e-learning course page in the viewer panel
+  switch_mode.py      Switches the active topic mode + resource library
 
 LMInterface/          LLM backend adapters
   lcpp_interface.py   llama.cpp (via OpenAI-compatible API)
@@ -133,6 +138,38 @@ Both tools are included in the default toolset:
 
 - **`search_resources`** — Searches the resource database with a query string and returns matching results.
 - **`examine_resource`** — Returns full details for a specific resource by ID.
+
+## E-learning Course Integration
+
+The chatbot can search the pages of a SCORM e-learning module (an Articulate
+Rise export) and open them beside the chat.
+
+**Serving the course.** Drop the SCORM export directory (the folder holding
+`imsmanifest.xml`) into the project root. The server auto-discovers it,
+serves it under `/scorm/<package>/...`, and `/api/scorm/index` feeds the
+frontend's "Modules" panel with deep links to every lesson.
+
+**Indexing the pages.** Per-lesson metadata lives in
+`Elearningcourse/<section>/<lesson>/rag_content.json` (lesson id, title,
+section content, and an LLM-generated summary/keywords/takeaways block).
+Import it with:
+
+```bash
+python import_elearning.py            # add --dry-run to preview the mapping
+```
+
+The script maps each section folder onto one of the topic providers (see
+`SECTION_TOPIC_RULES` in the script), validates every lesson id against the
+Rise course, and appends the pages to the topic's `database.db` and HNSW
+index as `source_type: "course_page"` resources. It is safe to re-run; a
+re-import replaces the previous course pages. Restart the embedding service
+afterwards so it picks up the updated indexes.
+
+**Sending pages to the user.** Course pages come back from
+`search_resources` like any other resource. The bot calls the
+`open_course_page` tool with the resource id; the frontend then renders a
+card in the chat and opens the lesson in the content viewer next to the
+conversation (`provide_file` stays reserved for actual files).
 
 ## Customization
 

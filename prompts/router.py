@@ -51,7 +51,7 @@ You have these tools available:
 - **switch_mode** — once you've picked a topic. Always pass a `target_mode` AND a 1-line `reason`.
 - **finish_turn** — call this after you've sent your message and (optionally) switched mode. The user will reply next.
 
-Do **not** call `search_resources`, `examine_resource`, or `provide_file` in router mode. Those belong to the topic modes; the active search index isn't even loaded here.
+Do **not** call `search_resources`, `examine_resource`, `provide_file`, or `open_course_page` in router mode. Those belong to the topic modes; the active search index isn't even loaded here.
 
 ====
 

@@ -617,7 +617,6 @@
   #viewer-panel {
     display: none;
     width: 48%;
-    max-width: 860px;
     min-width: 380px;
     flex-shrink: 0;
     flex-direction: column;
@@ -627,6 +626,21 @@
   }
 
   body.viewer-open #viewer-panel { display: flex; }
+
+  /* Drag handle between the chat column and the viewer. */
+  #viewer-resizer {
+    display: none;
+    width: 6px;
+    flex-shrink: 0;
+    cursor: col-resize;
+    background: var(--border);
+    touch-action: none;
+    transition: background 0.15s;
+  }
+
+  body.viewer-open #viewer-resizer { display: block; }
+
+  #viewer-resizer:hover, #viewer-resizer.dragging { background: var(--accent); }
 
   #viewer-header {
     padding: 8px 12px;
@@ -678,7 +692,9 @@
   /* On narrow screens the viewer replaces the chat rather than squeezing it. */
   @media (max-width: 900px) {
     body.viewer-open #chat-column { display: none; }
-    #viewer-panel { width: 100%; max-width: none; min-width: 0; }
+    body.viewer-open #viewer-resizer { display: none; }
+    /* !important beats the inline width set by the drag-resize handle. */
+    #viewer-panel { width: 100% !important; max-width: none; min-width: 0; }
     #course-panel { position: absolute; z-index: 10; top: 0; bottom: 0; left: 0; box-shadow: 4px 0 16px rgba(0,0,0,0.12); }
     #layout { position: relative; }
   }
@@ -740,6 +756,8 @@
     </div>
   </section>
 
+  <div id="viewer-resizer" title="Drag to resize • double-click to reset"></div>
+
   <section id="viewer-panel">
     <div id="viewer-header">
       <span id="viewer-title"></span>
@@ -781,6 +799,7 @@ let renderedCount = 0;             // entries from fullContext we've rendered
 let topicLabels = {};              // mode key → human label
 let inFlightFileIds = new Set();   // resource_ids already rendered (dedupe)
 let activeLessonBtn = null;        // highlighted entry in the course panel
+let lessonButtons = {};            // lesson id → button in the course panel
 
 // --- Minimal LMS shim for embedded SCORM content ---
 // Rise exports refuse to boot unless the parent window looks like an LMS
@@ -835,6 +854,7 @@ function parseSectionTitle(raw) {
 
 function renderCourseIndex(modules) {
   courseList.textContent = '';
+  lessonButtons = {};
   if (!modules.length) {
     const note = document.createElement('div');
     note.className = 'empty-note';
@@ -879,6 +899,7 @@ function renderCourseIndex(modules) {
         btn.addEventListener('click', () => {
           openInViewer(`${API}/${lesson.url}`, lesson.title, btn);
         });
+        if (lesson.id) lessonButtons[lesson.id] = btn;
         details.appendChild(btn);
       }
 
@@ -925,6 +946,58 @@ function closeViewer() {
 }
 
 viewerClose.addEventListener('click', closeViewer);
+
+// --- Viewer resize handle ---
+
+const viewerPanel = document.getElementById('viewer-panel');
+const viewerResizer = document.getElementById('viewer-resizer');
+const chatColumn = document.getElementById('chat-column');
+
+// Restore the width from the user's last session.
+try {
+  const saved = localStorage.getItem('botbase-viewer-width');
+  if (saved) viewerPanel.style.width = saved;
+} catch (e) {}
+
+viewerResizer.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  try { viewerResizer.setPointerCapture(e.pointerId); } catch (err) {}
+  viewerResizer.classList.add('dragging');
+  // The iframe swallows pointermove events the moment the cursor crosses
+  // into it, which would freeze the drag — disable them while dragging.
+  contentFrame.style.pointerEvents = 'none';
+  document.body.style.userSelect = 'none';
+
+  // The chat column's left edge is fixed during the drag (header panels
+  // don't move), so it bounds how wide the viewer may grow.
+  const layoutRight = document.getElementById('layout').getBoundingClientRect().right;
+  const chatLeft = chatColumn.getBoundingClientRect().left;
+  const minW = 380;                          // matches #viewer-panel min-width
+  const maxW = layoutRight - chatLeft - 340; // keep the chat column usable
+
+  const onMove = (ev) => {
+    const w = Math.max(minW, Math.min(maxW, layoutRight - ev.clientX));
+    viewerPanel.style.width = w + 'px';
+  };
+  const onUp = () => {
+    viewerResizer.classList.remove('dragging');
+    contentFrame.style.pointerEvents = '';
+    document.body.style.userSelect = '';
+    viewerResizer.removeEventListener('pointermove', onMove);
+    viewerResizer.removeEventListener('pointerup', onUp);
+    viewerResizer.removeEventListener('pointercancel', onUp);
+    try { localStorage.setItem('botbase-viewer-width', viewerPanel.style.width); } catch (e) {}
+  };
+  viewerResizer.addEventListener('pointermove', onMove);
+  viewerResizer.addEventListener('pointerup', onUp);
+  viewerResizer.addEventListener('pointercancel', onUp);
+});
+
+// Double-click restores the default 48% split.
+viewerResizer.addEventListener('dblclick', () => {
+  viewerPanel.style.width = '';
+  try { localStorage.removeItem('botbase-viewer-width'); } catch (e) {}
+});
 
 // --- Chat input ---
 
@@ -1177,6 +1250,60 @@ function renderFileCard(payload) {
   chatArea.scrollTop = chatArea.scrollHeight;
 }
 
+function renderLessonCard(payload) {
+  // Course page sent by the bot (open_course_page tool): render a card in
+  // the transcript and open the page in the viewer panel beside the chat.
+  const key = `${payload.resource_id}|${payload.url}`;
+  if (inFlightFileIds.has(key)) return;
+  inFlightFileIds.add(key);
+
+  const fullUrl = `${API}/${payload.url}`;
+  const displayName = payload.title || 'Course page';
+  const lessonBtn = payload.lesson_id ? lessonButtons[payload.lesson_id] : null;
+
+  const card = document.createElement('div');
+  card.className = 'file-card';
+
+  const header = document.createElement('div');
+  header.className = 'file-header';
+  const title = document.createElement('span');
+  title.className = 'file-title';
+  title.textContent = `📘 ${displayName}`;
+  header.appendChild(title);
+  const tag = document.createElement('span');
+  tag.className = 'file-type';
+  tag.textContent = payload.section || 'course page';
+  header.appendChild(tag);
+  card.appendChild(header);
+
+  if (payload.note) {
+    const note = document.createElement('div');
+    note.className = 'file-note';
+    note.textContent = payload.note;
+    card.appendChild(note);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'file-actions';
+  actions.appendChild(fileActionLink('Open beside chat', () =>
+    openInViewer(fullUrl, displayName, lessonBtn)));
+  actions.appendChild(fileActionLink('Open in new tab ↗', fullUrl));
+  card.appendChild(actions);
+
+  if (payload.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'file-summary';
+    summary.textContent = payload.summary;
+    card.appendChild(summary);
+  }
+
+  chatArea.insertBefore(card, typingIndicator);
+  chatArea.scrollTop = chatArea.scrollHeight;
+
+  // Show the page immediately — sending a page means showing it.
+  openInViewer(fullUrl, displayName, lessonBtn);
+}
+
 function parseToolArgs(args) {
   if (typeof args !== 'string') return args || {};
   try { return JSON.parse(args); } catch { return {}; }
@@ -1254,6 +1381,8 @@ function startPolling() {
 function handleQueueMessage(m) {
   if (m.role === 'assistant_file') {
     renderFileCard(m);
+  } else if (m.role === 'assistant_lesson') {
+    renderLessonCard(m);
   } else if (m.role === 'system_event' && m.event === 'mode_switch') {
     renderModeSwitch(m.mode, m.label);
   }
