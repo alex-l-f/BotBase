@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Simulator — Login</title>
+<style>
+  body { font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+         background: #f5f6f8; color: #1a212e; -webkit-font-smoothing: antialiased;
+         display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  .card { background: #fff; padding: 2.4rem 2.2rem; border-radius: 14px; width: 330px;
+          border: 1px solid #e4e7ec; box-shadow: 0 4px 16px rgba(16, 24, 40, .06); }
+  h1 { font-size: 1.05rem; font-weight: 600; margin: 0 0 .4rem; letter-spacing: -.01em;
+       display: flex; align-items: center; gap: .55rem; }
+  .logo-mark { width: 10px; height: 10px; border-radius: 3px; background: #2563eb;
+               box-shadow: 0 0 0 4px #eff4ff; }
+  p { margin: 0 0 1.3rem; color: #667085; font-size: .84rem; }
+  input { width: 100%; padding: .6rem .8rem; border-radius: 8px; border: 1px solid #d0d5dd;
+          background: #fff; color: #1a212e; font-size: .92rem; box-sizing: border-box;
+          font-family: inherit; transition: border-color .12s, box-shadow .12s; }
+  input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+  button { width: 100%; margin-top: .9rem; padding: .6rem; border: none; border-radius: 8px;
+           background: #2563eb; color: white; font-size: .92rem; font-weight: 500;
+           cursor: pointer; font-family: inherit; transition: background .12s; }
+  button:hover { background: #1d4fd7; }
+  .err { color: #b42318; font-size: .82rem; margin-top: .6rem; min-height: 1.1em; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="logo-mark"></span>Bot Simulator</h1>
+    <p>Enter the shared password to continue.</p>
+    <input type="password" id="pw" placeholder="Password" autofocus>
+    <button onclick="doLogin()">Sign in</button>
+    <div class="err" id="err"></div>
+  </div>
+<script>
+async function doLogin() {
+  const resp = await fetch('/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: document.getElementById('pw').value }),
+  });
+  if (resp.ok) location.reload();
+  else document.getElementById('err').textContent = 'Wrong password';
+}
+document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+</script>
+</body>
+</html>

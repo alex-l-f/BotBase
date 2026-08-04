@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Simulator</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --panel2: #f3f4f6; --border: #e4e7ec;
+    --text: #1a212e; --muted: #667085; --accent: #2563eb; --accent-h: #1d4fd7;
+    --accent-soft: #eff4ff;
+    --good: #067647; --good-bg: #ecfdf3;
+    --warn: #b54708; --warn-bg: #fffaeb;
+    --bad: #b42318; --bad-bg: #fef3f2;
+    --info: #175cd3; --info-bg: #eff8ff;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 15px;
+         -webkit-font-smoothing: antialiased; }
+  header { display: flex; align-items: center; gap: 1.6rem; padding: .7rem 1.6rem;
+           background: var(--panel); border-bottom: 1px solid var(--border);
+           position: sticky; top: 0; z-index: 10; box-shadow: var(--shadow); }
+  header h1 { font-size: .95rem; font-weight: 600; margin: 0; white-space: nowrap;
+              display: flex; align-items: center; gap: .55rem; letter-spacing: -.01em; }
+  .logo-mark { width: 10px; height: 10px; border-radius: 3px; background: var(--accent);
+               box-shadow: 0 0 0 4px var(--accent-soft); }
+  nav { display: flex; gap: .25rem; flex: 1; }
+  nav button { background: none; border: none; color: var(--muted); font-size: .88rem; font-weight: 500;
+               padding: .42rem .95rem; border-radius: 8px; cursor: pointer; font-family: inherit;
+               transition: background .12s, color .12s; }
+  nav button.active { background: var(--accent-soft); color: var(--accent); }
+  nav button:hover:not(.active) { color: var(--text); background: var(--panel2); }
+  .reviewer { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--muted); }
+  .reviewer input { width: 140px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 1.8rem 1.6rem 3rem; }
+
+  input, select, textarea {
+    background: var(--panel); color: var(--text); border: 1px solid #d0d5dd;
+    border-radius: 8px; padding: .48rem .75rem; font-size: .88rem; font-family: inherit;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+  }
+  input::placeholder, textarea::placeholder { color: #98a2b3; }
+  textarea { width: 100%; resize: vertical; line-height: 1.5; }
+  label { display: block; font-size: .76rem; font-weight: 500; color: #475467; margin: .8rem 0 .3rem; }
+  button.btn { background: var(--accent); color: #fff; border: 1px solid var(--accent);
+               border-radius: 8px; padding: .48rem 1.05rem; font-size: .88rem; font-weight: 500;
+               cursor: pointer; font-family: inherit; box-shadow: var(--shadow);
+               transition: background .12s; }
+  button.btn:hover { background: var(--accent-h); }
+  button.btn.secondary { background: var(--panel); color: #344054; border: 1px solid #d0d5dd; }
+  button.btn.secondary:hover { background: var(--panel2); }
+  button.btn.danger { background: var(--panel); border: 1px solid #fda29b; color: var(--bad); box-shadow: none; }
+  button.btn.danger:hover { background: var(--bad-bg); }
+  button.btn.small { padding: .3rem .75rem; font-size: .8rem; }
+  button.btn:disabled { opacity: .5; cursor: default; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+          padding: 1.25rem 1.5rem; margin-bottom: 1.1rem; box-shadow: var(--shadow); }
+  .card h2 { font-size: .95rem; font-weight: 600; margin: 0 0 .7rem; letter-spacing: -.01em; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 180px; }
+  .muted { color: var(--muted); font-size: .84rem; }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .87rem; }
+  th, td { text-align: left; padding: .6rem .65rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: .71rem; text-transform: uppercase;
+       letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #f8fafc; }
+
+  .status { padding: .18rem .6rem; border-radius: 20px; font-size: .73rem; font-weight: 500;
+            white-space: nowrap; border: 1px solid transparent; }
+  .status.running, .status.evaluating, .status.pending {
+    background: var(--info-bg); color: var(--info); border-color: #b2ddff; }
+  .status.completed { background: var(--good-bg); color: var(--good); border-color: #abefc6; }
+  .status.failed { background: var(--bad-bg); color: var(--bad); border-color: #fecdca; }
+
+  .score-pill { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .score-good { color: var(--good); } .score-mid { color: var(--warn); } .score-bad { color: var(--bad); }
+
+  /* transcript */
+  .bubble { max-width: 76%; padding: .75rem 1rem; border-radius: 12px; margin: .4rem 0;
+            white-space: pre-wrap; line-height: 1.55; font-size: .89rem; }
+  .bubble.user { background: var(--accent-soft); border: 1px solid #d6e2ff;
+                 margin-left: auto; border-bottom-right-radius: 4px; }
+  .bubble.bot { background: #f8f9fb; border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .bubble .who { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+                 color: var(--muted); margin-bottom: .3rem; }
+  .bubble.user .who { color: var(--accent); }
+  .transcript { display: flex; flex-direction: column; }
+
+  .crit-row { border: 1px solid var(--border); border-left: 3px solid var(--accent);
+              padding: .65rem .95rem; margin: .55rem 0; background: #fbfcfd;
+              border-radius: 0 8px 8px 0; }
+  .crit-row .flex-between { margin-bottom: .25rem; }
+  .justif { font-size: .84rem; color: #475467; line-height: 1.5; }
+
+  .review-item { border-bottom: 1px solid var(--border); padding: .7rem 0; }
+  .review-item:last-of-type { border-bottom: none; }
+  .stars { color: #f79009; letter-spacing: 2px; font-size: .85rem; }
+  .empty { color: var(--muted); text-align: center; padding: 2.2rem 0; font-size: .88rem; }
+  .back { color: var(--accent); cursor: pointer; font-size: .85rem; font-weight: 500;
+          margin-bottom: .9rem; display: inline-block; }
+  .back:hover { text-decoration: underline; }
+  .err-banner { background: var(--bad-bg); color: var(--bad); border: 1px solid #fecdca;
+                border-radius: 8px; padding: .6rem .95rem; margin-bottom: 1rem;
+                font-size: .86rem; display: none; }
+  .criterion-edit { background: #fbfcfd; border: 1px solid var(--border); border-radius: 10px;
+                    padding: .9rem 1rem; margin-bottom: .65rem; }
+  .criterion-edit .row > div.narrow { flex: 0 0 90px; min-width: 70px; }
+  .inline-fields { display: flex; gap: .7rem; flex-wrap: wrap; align-items: flex-end; }
+  h3.section { font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+               margin: 1.5rem 0 .55rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="logo-mark"></span>Bot Simulator</h1>
+  <nav>
+    <button data-view="runs" class="active" onclick="showView('runs')">Runs</button>
+    <button data-view="personas" onclick="showView('personas')">Personas</button>
+    <button data-view="rubrics" onclick="showView('rubrics')">Rubrics</button>
+  </nav>
+  <div class="reviewer">
+    <span>Reviewer:</span>
+    <input id="reviewerName" placeholder="your name">
+  </div>
+</header>
+<main>
+  <div class="err-banner" id="errBanner"></div>
+  <div id="view-runs"></div>
+  <div id="view-run-detail" style="display:none"></div>
+  <div id="view-personas" style="display:none"></div>
+  <div id="view-rubrics" style="display:none"></div>
+</main>
+
+<script>
+const API = '';
+let CONFIG = { default_bot_url: 'http://localhost:5551', model_suggestions: [] };
+let personas = [], rubrics = [], runs = [];
+let currentView = 'runs';
+let runPollTimer = null, listPollTimer = null;
+let currentRunId = null;
+
+// ---------------------------------------------------------------- helpers
+async function api(path, opts = {}) {
+  if (opts.body !== undefined) {
+    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    opts.body = JSON.stringify(opts.body);
+  }
+  const resp = await fetch(API + path, opts);
+  if (resp.status === 401) { location.reload(); throw new Error('Not authenticated'); }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  return data;
+}
+function showError(msg) {
+  const b = document.getElementById('errBanner');
+  b.textContent = msg; b.style.display = 'block';
+  clearTimeout(showError._t);
+  showError._t = setTimeout(() => b.style.display = 'none', 6000);
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtTime(ts) { return ts ? new Date(ts * 1000).toLocaleString() : ''; }
+function scoreClass(s) { return s >= 75 ? 'score-good' : s >= 50 ? 'score-mid' : 'score-bad'; }
+function reviewerName() { return document.getElementById('reviewerName').value.trim(); }
+
+document.getElementById('reviewerName').value = localStorage.getItem('sim_reviewer') || '';
+document.getElementById('reviewerName').addEventListener('change', e =>
+  localStorage.setItem('sim_reviewer', e.target.value.trim()));
+
+function showView(name) {
+  currentView = name;
+  clearInterval(runPollTimer);
+  for (const v of ['runs', 'run-detail', 'personas', 'rubrics'])
+    document.getElementById('view-' + v).style.display = 'none';
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === name));
+  document.getElementById('view-' + name).style.display = 'block';
+  if (name === 'runs') renderRuns();
+  if (name === 'personas') renderPersonas();
+  if (name === 'rubrics') renderRubrics();
+}
+
+async function loadAll() {
+  try {
+    const [cfg, p, r, ru] = await Promise.all([
+      api('/api/config'), api('/api/personas'), api('/api/rubrics'), api('/api/runs')]);
+    CONFIG = cfg; personas = p.personas; rubrics = r.rubrics; runs = ru.runs;
+  } catch (e) { showError(e.message); }
+}
+
+// ------------------------------------------------------------------- runs
+async function refreshRuns() {
+  try { runs = (await api('/api/runs')).runs; } catch (e) { showError(e.message); }
+}
+
+function renderRuns() {
+  const el = document.getElementById('view-runs');
+  const activePersonas = personas.filter(p => !p.archived);
+  const modelOpts = CONFIG.model_suggestions.map(m => `<option value="${esc(m)}">`).join('');
+
+  el.innerHTML = `
+  <div class="card">
+    <h2>New simulation run</h2>
+    ${activePersonas.length === 0 ? `<div class="muted">Create a persona first (Personas tab).</div>` : `
+    <div class="row">
+      <div><label>Persona</label>
+        <select id="nr-persona" style="width:100%">
+          ${activePersonas.map(p => `<option value="${p.id}">${esc(p.name)} — ${esc(p.model)}</option>`).join('')}
+        </select></div>
+      <div><label>Rubric (auto-eval after run)</label>
+        <select id="nr-rubric" style="width:100%">
+          <option value="">— none —</option>
+          ${rubrics.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}
+        </select></div>
+      <div><label>Max turns</label><input id="nr-turns" type="number" value="10" min="1" max="50" style="width:100%"></div>
+    </div>
+    <div class="row">
+      <div><label>Bot server URL</label><input id="nr-url" value="${esc(CONFIG.default_bot_url)}" style="width:100%"></div>
+      <div><label>Bot profile</label>
+        <div style="display:flex;gap:.4rem">
+          <input id="nr-profile" value="default" list="profileList" style="flex:1">
+          <datalist id="profileList"></datalist>
+          <button class="btn secondary small" onclick="fetchProfiles()" title="Fetch profiles from bot server">↻</button>
+        </div></div>
+      <div><label>Backend note (e.g. "llama.cpp" / "openrouter")</label>
+        <input id="nr-backend" placeholder="which backend the bot server runs" style="width:100%"></div>
+    </div>
+    <div class="row">
+      <div><label>Run label (optional)</label><input id="nr-name" placeholder="e.g. stress-test v2" style="width:100%"></div>
+      <div style="flex:0 0 auto;display:flex;align-items:flex-end">
+        <button class="btn" id="nr-start" onclick="startRun()">▶ Start run</button>
+      </div>
+    </div>
+    <datalist id="modelList">${modelOpts}</datalist>`}
+  </div>
+  <div class="card">
+    <div class="flex-between"><h2>Runs</h2><button class="btn secondary small" onclick="refreshRuns().then(renderRuns)">↻ Refresh</button></div>
+    <div id="runsTable"></div>
+  </div>`;
+
+  const tbl = document.getElementById('runsTable');
+  if (!runs.length) { tbl.innerHTML = '<div class="empty">No runs yet.</div>'; }
+  else {
+    tbl.innerHTML = `<table><thead><tr>
+      <th>#</th><th>Label</th><th>Persona</th><th>Profile</th><th>Backend</th><th>Msgs</th>
+      <th>Score</th><th>Reviews</th><th>Status</th><th>Started</th></tr></thead><tbody>
+      ${runs.map(r => `<tr class="clickable" onclick="openRun(${r.id})">
+        <td>${r.id}</td>
+        <td>${esc(r.name) || '<span class="muted">—</span>'}</td>
+        <td>${esc(r.persona_name || '?')}</td>
+        <td>${esc(r.bot_profile)}</td>
+        <td>${esc(r.bot_backend_note) || '<span class="muted">—</span>'}</td>
+        <td>${r.message_count ?? 0}</td>
+        <td>${r.latest_score != null ? `<span class="score-pill ${scoreClass(r.latest_score)}">${r.latest_score}</span>` : '<span class="muted">—</span>'}</td>
+        <td>${r.review_count || '<span class="muted">—</span>'}</td>
+        <td><span class="status ${esc(r.status)}">${esc(r.status)}</span></td>
+        <td class="muted">${fmtTime(r.created_at)}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  clearInterval(listPollTimer);
+  if (runs.some(r => ['running', 'evaluating', 'pending'].includes(r.status))) {
+    listPollTimer = setInterval(async () => {
+      if (currentView !== 'runs') { clearInterval(listPollTimer); return; }
+      await refreshRuns(); renderRuns();
+    }, 4000);
+  }
+}
+
+async function fetchProfiles() {
+  try {
+    const url = document.getElementById('nr-url').value.trim();
+    const data = await api('/api/bot/profiles', { method: 'POST', body: { url } });
+    document.getElementById('profileList').innerHTML =
+      data.profiles.map(p => `<option value="${esc(p)}">`).join('');
+    showError(`Found ${data.profiles.length} profiles — pick from the dropdown`);
+  } catch (e) { showError(e.message); }
+}
+
+async function startRun() {
+  const btn = document.getElementById('nr-start');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/runs', { method: 'POST', body: {
+      persona_id: +document.getElementById('nr-persona').value,
+      rubric_id: +document.getElementById('nr-rubric').value || null,
+      max_turns: +document.getElementById('nr-turns').value || 10,
+      bot_url: document.getElementById('nr-url').value.trim(),
+      bot_profile: document.getElementById('nr-profile').value.trim() || 'default',
+      bot_backend_note: document.getElementById('nr-backend').value.trim(),
+      name: document.getElementById('nr-name').value.trim(),
+      created_by: reviewerName(),
+    }});
+    openRun(data.id);
+  } catch (e) { showError(e.message); btn.disabled = false; }
+}
+
+// -------------------------------------------------------------- run detail
+async function openRun(id) {
+  currentRunId = id;
+  showView('run-detail');
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === 'runs'));
+  await renderRunDetail();
+}
+
+async function renderRunDetail() {
+  const el = document.getElementById('view-run-detail');
+  let run;
+  try { run = await api('/api/runs/' + currentRunId); }
+  catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+
+  const live = ['running', 'evaluating', 'pending'].includes(run.status);
+  const p = run.persona_snapshot || {};
+  const transcriptHtml = (run.transcript || []).map(m => `
+    <div class="bubble ${m.role === 'user' ? 'user' : 'bot'}">
+      <div class="who">${m.role === 'user' ? esc(p.name || 'Simulated user') : 'Bot'}</div>${esc(m.content)}
+    </div>`).join('') || '<div class="empty">No messages yet…</div>';
+
+  const evalsHtml = (run.evaluations || []).map(ev => {
+    if (ev.status === 'failed')
+      return `<div class="card"><h2>Evaluation — failed</h2><div class="muted">${esc(ev.error)}</div></div>`;
+    return `<div class="card">
+      <div class="flex-between">
+        <h2>Evaluation — ${esc(ev.rubric_name)} <span class="muted">(${esc(ev.judge_model)})</span></h2>
+        ${ev.weighted_score != null ? `<span class="score-pill ${scoreClass(ev.weighted_score)}" style="font-size:1.2rem">${ev.weighted_score}/100</span>` : ''}
+      </div>
+      <div class="muted" style="margin-bottom:.5rem">${fmtTime(ev.created_at)}</div>
+      ${(ev.scores || []).map(s => `
+        <div class="crit-row">
+          <div class="flex-between"><strong>${esc(s.title)}</strong>
+            <span class="score-pill">${s.score} / ${s.max}${s.weight !== 1 ? ` <span class="muted">(w=${s.weight})</span>` : ''}</span></div>
+          <div class="justif">${esc(s.justification)}</div>
+        </div>`).join('')}
+      ${ev.overall_comment ? `<h3 class="section">Overall</h3><div style="font-size:.9rem">${esc(ev.overall_comment)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const reviewsHtml = (run.reviews || []).map(rv => `
+    <div class="review-item">
+      <div class="flex-between">
+        <strong>${esc(rv.reviewer)}</strong>
+        <span>${rv.rating ? `<span class="stars">${'★'.repeat(rv.rating)}${'☆'.repeat(5 - rv.rating)}</span>` : ''}
+          <span class="muted" style="margin-left:.6rem">${fmtTime(rv.created_at)}</span></span>
+      </div>
+      <div style="font-size:.9rem;white-space:pre-wrap">${esc(rv.comment)}</div>
+    </div>`).join('') || '<div class="muted">No human reviews yet.</div>';
+
+  el.innerHTML = `
+    <span class="back" onclick="showView('runs')">← Back to runs</span>
+    <div class="card">
+      <div class="flex-between">
+        <h2>Run #${run.id}${run.name ? ' — ' + esc(run.name) : ''}</h2>
+        <span class="status ${esc(run.status)}">${esc(run.status)}</span>
+      </div>
+      <div class="muted">
+        Persona: <strong>${esc(p.name || '?')}</strong> (${esc(p.model || '?')}) ·
+        Bot: ${esc(run.bot_url)} / profile <strong>${esc(run.bot_profile)}</strong>
+        ${run.bot_backend_note ? ` · backend: ${esc(run.bot_backend_note)}` : ''} ·
+        max ${run.max_turns} turns · started ${fmtTime(run.created_at)}
+        ${run.created_by ? ` by ${esc(run.created_by)}` : ''}
+      </div>
+      ${run.error ? `<div style="color:var(--bad);margin-top:.5rem;font-size:.88rem">${esc(run.error)}</div>` : ''}
+      <div style="margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn secondary small" onclick="renderRunDetail()">↻ Refresh</button>
+        ${!live && run.transcript?.length ? `
+          <select id="reeval-rubric">${rubrics.map(r =>
+            `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>
+          <button class="btn secondary small" onclick="reEvaluate()">⚖ Evaluate with rubric</button>` : ''}
+        ${!live ? `<button class="btn danger small" onclick="deleteRun(${run.id})">Delete run</button>` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Transcript ${live ? '<span class="muted">(live)</span>' : ''}</h2>
+      <div class="transcript">${transcriptHtml}</div>
+    </div>
+
+    ${evalsHtml}
+
+    <div class="card">
+      <h2>Human reviews</h2>
+      ${reviewsHtml}
+      <h3 class="section">Add your review</h3>
+      <div class="inline-fields">
+        <div><label>Rating</label>
+          <select id="rv-rating">
+            <option value="">no rating</option>
+            ${[5,4,3,2,1].map(n => `<option value="${n}">${'★'.repeat(n)}</option>`).join('')}
+          </select></div>
+        <div style="flex:1;min-width:250px"><label>Comment</label>
+          <textarea id="rv-comment" rows="2" placeholder="What did the bot do well / badly?"></textarea></div>
+        <button class="btn" onclick="submitReview()">Submit</button>
+      </div>
+      <div class="muted" style="margin-top:.4rem">Posting as: <strong>${esc(reviewerName()) || '(set your name top-right)'}</strong></div>
+    </div>`;
+
+  clearInterval(runPollTimer);
+  if (live) {
+    runPollTimer = setInterval(() => {
+      if (currentView === 'run-detail') renderRunDetail(); else clearInterval(runPollTimer);
+    }, 3500);
+  }
+}
+
+async function reEvaluate() {
+  try {
+    await api(`/api/runs/${currentRunId}/evaluate`, { method: 'POST',
+      body: { rubric_id: +document.getElementById('reeval-rubric').value } });
+    renderRunDetail();
+  } catch (e) { showError(e.message); }
+}
+
+async function deleteRun(id) {
+  if (!confirm('Delete this run, its evaluations, and reviews?')) return;
+  try { await api('/api/runs/' + id, { method: 'DELETE' });
+    await refreshRuns(); showView('runs');
+  } catch (e) { showError(e.message); }
+}
+
+async function submitReview() {
+  if (!reviewerName()) { showError('Set your reviewer name (top right) first'); return; }
+  try {
+    await api(`/api/runs/${currentRunId}/reviews`, { method: 'POST', body: {
+      reviewer: reviewerName(),
+      rating: +document.getElementById('rv-rating').value || null,
+      comment: document.getElementById('rv-comment').value.trim(),
+    }});
+    renderRunDetail();
+  } catch (e) { showError(e.message); }
+}
+
+// --------------------------------------------------------------- personas
+function renderPersonas(editId = null, isNew = false) {
+  const el = document.getElementById('view-personas');
+  const editing = isNew ? { name:'', short_desc:'', profile_text:'', model: CONFIG.model_suggestions[0] || '', temperature: 0.8 }
+    : editId != null ? personas.find(p => p.id === editId) : null;
+  const modelOpts = CONFIG.model_suggestions.map(m => `<option value="${esc(m)}">`).join('');
+
+  el.innerHTML = `
+    ${editing ? `
+    <div class="card">
+      <h2>${isNew ? 'New persona' : 'Edit persona'}</h2>
+      <div class="row">
+        <div><label>Name</label><input id="pe-name" value="${esc(editing.name)}" style="width:100%"></div>
+        <div><label>Short description</label><input id="pe-desc" value="${esc(editing.short_desc)}" style="width:100%"></div>
+      </div>
+      <div class="row">
+        <div><label>Simulated-user model (OpenRouter id)</label>
+          <input id="pe-model" value="${esc(editing.model)}" list="modelList2" style="width:100%">
+          <datalist id="modelList2">${modelOpts}</datalist></div>
+        <div style="flex:0 0 140px;min-width:120px"><label>Temperature</label>
+          <input id="pe-temp" type="number" step="0.1" min="0" max="2" value="${editing.temperature}" style="width:100%"></div>
+      </div>
+      <label>Character profile (who they are, situation, goals, personality, typing style…)</label>
+      <textarea id="pe-profile" rows="12" placeholder="e.g. You are Jordan, a 24-year-old warehouse worker under heavy stress...">${esc(editing.profile_text)}</textarea>
+      <div style="margin-top:.8rem;display:flex;gap:.5rem">
+        <button class="btn" onclick="savePersona(${isNew ? 'null' : editId})">Save</button>
+        <button class="btn secondary" onclick="renderPersonas()">Cancel</button>
+      </div>
+    </div>` : `
+    <div class="card flex-between">
+      <h2 style="margin:0">Personas</h2>
+      <button class="btn" onclick="renderPersonas(null, true)">+ New persona</button>
+    </div>`}
+    <div class="card">
+      ${!personas.length ? '<div class="empty">No personas yet.</div>' : `
+      <table><thead><tr><th>Name</th><th>Description</th><th>Model</th><th>Temp</th><th></th></tr></thead><tbody>
+        ${personas.map(p => `<tr>
+          <td><strong>${esc(p.name)}</strong></td>
+          <td class="muted">${esc(p.short_desc)}</td>
+          <td>${esc(p.model)}</td>
+          <td>${p.temperature}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn secondary small" onclick="renderPersonas(${p.id})">Edit</button>
+            <button class="btn danger small" onclick="removePersona(${p.id})">Archive</button>
+          </td></tr>`).join('')}
+      </tbody></table>`}
+    </div>`;
+}
+
+async function savePersona(id) {
+  const body = {
+    name: document.getElementById('pe-name').value.trim(),
+    short_desc: document.getElementById('pe-desc').value.trim(),
+    model: document.getElementById('pe-model').value.trim(),
+    temperature: +document.getElementById('pe-temp').value || 0.8,
+    profile_text: document.getElementById('pe-profile').value.trim(),
+  };
+  try {
+    if (id == null) await api('/api/personas', { method: 'POST', body });
+    else await api('/api/personas/' + id, { method: 'PUT', body });
+    personas = (await api('/api/personas')).personas;
+    renderPersonas();
+  } catch (e) { showError(e.message); }
+}
+
+async function removePersona(id) {
+  if (!confirm('Archive this persona? Existing runs keep their snapshot.')) return;
+  try { await api('/api/personas/' + id, { method: 'DELETE' });
+    personas = (await api('/api/personas')).personas; renderPersonas();
+  } catch (e) { showError(e.message); }
+}
+
+// ---------------------------------------------------------------- rubrics
+let editCriteria = [];
+
+function renderRubrics(editId = null, isNew = false) {
+  const el = document.getElementById('view-rubrics');
+  const editing = isNew
+    ? { name:'', description:'', judge_model: CONFIG.model_suggestions[0] || '', criteria: [] }
+    : editId != null ? rubrics.find(r => r.id === editId) : null;
+  if (editing) editCriteria = JSON.parse(JSON.stringify(editing.criteria || []));
+  if (editing && !editCriteria.length) editCriteria = [{ key:'', title:'', description:'', min:1, max:5, weight:1 }];
+  const modelOpts = CONFIG.model_suggestions.map(m => `<option value="${esc(m)}">`).join('');
+
+  el.innerHTML = `
+    ${editing ? `
+    <div class="card">
+      <h2>${isNew ? 'New rubric' : 'Edit rubric'}</h2>
+      <div class="row">
+        <div><label>Name</label><input id="re-name" value="${esc(editing.name)}" style="width:100%"></div>
+        <div><label>Judge model (OpenRouter id)</label>
+          <input id="re-judge" value="${esc(editing.judge_model)}" list="modelList3" style="width:100%">
+          <datalist id="modelList3">${modelOpts}</datalist></div>
+      </div>
+      <label>Description / grading guidance for the judge</label>
+      <textarea id="re-desc" rows="3">${esc(editing.description)}</textarea>
+      <h3 class="section">Criteria</h3>
+      <div id="critList"></div>
+      <button class="btn secondary small" onclick="addCriterion()">+ Add criterion</button>
+      <div style="margin-top:1rem;display:flex;gap:.5rem">
+        <button class="btn" onclick="saveRubric(${isNew ? 'null' : editId})">Save</button>
+        <button class="btn secondary" onclick="renderRubrics()">Cancel</button>
+      </div>
+    </div>` : `
+    <div class="card flex-between">
+      <h2 style="margin:0">Rubrics</h2>
+      <button class="btn" onclick="renderRubrics(null, true)">+ New rubric</button>
+    </div>`}
+    <div class="card">
+      ${!rubrics.length ? '<div class="empty">No rubrics yet.</div>' : `
+      <table><thead><tr><th>Name</th><th>Description</th><th>Criteria</th><th>Judge</th><th></th></tr></thead><tbody>
+        ${rubrics.map(r => `<tr>
+          <td><strong>${esc(r.name)}</strong></td>
+          <td class="muted">${esc(r.description).slice(0, 90)}</td>
+          <td>${(r.criteria || []).length}</td>
+          <td>${esc(r.judge_model)}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn secondary small" onclick="renderRubrics(${r.id})">Edit</button>
+            <button class="btn danger small" onclick="removeRubric(${r.id})">Archive</button>
+          </td></tr>`).join('')}
+      </tbody></table>`}
+    </div>`;
+  if (editing) renderCritList();
+}
+
+function renderCritList() {
+  document.getElementById('critList').innerHTML = editCriteria.map((c, i) => `
+    <div class="criterion-edit">
+      <div class="row">
+        <div style="flex:0 0 160px"><label>Key (id)</label><input value="${esc(c.key)}" oninput="editCriteria[${i}].key=this.value" style="width:100%" placeholder="empathy"></div>
+        <div><label>Title</label><input value="${esc(c.title)}" oninput="editCriteria[${i}].title=this.value" style="width:100%" placeholder="Empathy"></div>
+        <div class="narrow"><label>Min</label><input type="number" value="${c.min ?? 1}" oninput="editCriteria[${i}].min=+this.value" style="width:100%"></div>
+        <div class="narrow"><label>Max</label><input type="number" value="${c.max ?? 5}" oninput="editCriteria[${i}].max=+this.value" style="width:100%"></div>
+        <div class="narrow"><label>Weight</label><input type="number" step="0.5" value="${c.weight ?? 1}" oninput="editCriteria[${i}].weight=+this.value" style="width:100%"></div>
+        <div style="flex:0 0 auto;display:flex;align-items:flex-end">
+          <button class="btn danger small" onclick="editCriteria.splice(${i},1);renderCritList()">✕</button></div>
+      </div>
+      <label>What the judge should assess</label>
+      <textarea rows="2" oninput="editCriteria[${i}].description=this.value" placeholder="Did the bot acknowledge the user's feelings before offering advice?">${esc(c.description)}</textarea>
+    </div>`).join('');
+}
+
+function addCriterion() {
+  editCriteria.push({ key:'', title:'', description:'', min:1, max:5, weight:1 });
+  renderCritList();
+}
+
+async function saveRubric(id) {
+  const body = {
+    name: document.getElementById('re-name').value.trim(),
+    judge_model: document.getElementById('re-judge').value.trim(),
+    description: document.getElementById('re-desc').value.trim(),
+    criteria: editCriteria.map(c => ({ ...c,
+      key: (c.key || '').trim(), title: (c.title || '').trim(), description: (c.description || '').trim() })),
+  };
+  try {
+    if (id == null) await api('/api/rubrics', { method: 'POST', body });
+    else await api('/api/rubrics/' + id, { method: 'PUT', body });
+    rubrics = (await api('/api/rubrics')).rubrics;
+    renderRubrics();
+  } catch (e) { showError(e.message); }
+}
+
+async function removeRubric(id) {
+  if (!confirm('Archive this rubric? Existing evaluations keep their snapshot.')) return;
+  try { await api('/api/rubrics/' + id, { method: 'DELETE' });
+    rubrics = (await api('/api/rubrics')).rubrics; renderRubrics();
+  } catch (e) { showError(e.message); }
+}
+
+// ------------------------------------------------------------------- init
+loadAll().then(() => renderRuns());
+</script>
+</body>
+</html>

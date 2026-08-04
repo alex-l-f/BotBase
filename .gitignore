@@ -13,4 +13,7 @@ model_cache/*
 *.pt
 processed_resources/*
 /data
-performance-coaching*/
+*-scorm12-*/
+Elearningcourse/
+simulator/simulator.db*
+simulator/.env

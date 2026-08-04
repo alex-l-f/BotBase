@@ -1,0 +1,81 @@
+# Bot Simulator
+
+A standalone sandbox for testing a BotBase chatbot with simulated users.
+It drives an OpenRouter-powered persona against a running BotBase server
+(over its HTTP API only — no code dependency), records the conversation,
+auto-evaluates it against a definable rubric with an LLM judge, and stores
+everything (personas, runs, transcripts, evaluations, human reviews) in a
+local SQLite database behind a small review web UI.
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+Provide an OpenRouter key in `simulator/.env` (or it falls back to the
+parent project's `.env`):
+
+```
+OPENROUTER_API_KEY=your_key_here
+```
+
+Optional environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SIM_PASSWORD` | `SimReview123` | Shared password for the review UI |
+| `SIM_BOT_URL` | `http://localhost:5551` | Default BotBase server URL offered in the UI |
+| `SIM_BOT_PASSWORD` | `AMIRADemo123` | Password used to log in to the BotBase server |
+
+## Run
+
+Start the bot under test (in the parent project) with whichever backend
+you want to evaluate:
+
+```bash
+python server.py --backend llama_cpp   # or: --backend openrouter
+```
+
+Then start the simulator:
+
+```bash
+python server.py --port 5561
+```
+
+Open `http://localhost:5561`, enter the shared password, and set your
+reviewer name (top right) so runs and reviews are attributed to you.
+
+## Workflow
+
+1. **Personas** — create simulated users: a freeform character profile
+   (who they are, situation, goals, typing style), plus the OpenRouter
+   model and temperature that plays them.
+2. **Rubrics** — create named criteria sets (key, title, description,
+   score range, weight) and pick the OpenRouter judge model. The judge
+   scores each criterion with a justification; a weighted 0–100 score is
+   computed from the results.
+3. **Runs** — pick a persona, rubric, bot URL/profile, and max turns,
+   then start. The transcript streams live; when the conversation ends
+   (the persona decides it's done, or the turn cap is hit) the rubric
+   evaluation runs automatically. Since BotBase picks its LLM backend at
+   launch, use the free-text "backend note" field to record which backend
+   the target server was running (run two instances on different ports to
+   compare backends side by side).
+4. **Review** — anyone with the password can open a run, read the
+   transcript beside its rubric scores, re-evaluate with another rubric,
+   and leave attributed star-ratings/comments.
+
+## Files
+
+```
+server.py            Flask app — API + review UI
+runner.py            Simulation loop + LLM judge
+bot_client.py        HTTP client for the BotBase API
+openrouter_client.py Minimal OpenRouter chat client
+db.py                SQLite storage (simulator.db)
+static/              Web UI
+```
+
+Persona and rubric definitions are snapshotted into each run, so editing
+or archiving them later never changes historical results.
