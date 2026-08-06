@@ -11,7 +11,7 @@ from agent import (
     get_active_backend,
     BACKENDS,
 )
-from prompts import list_profiles
+from prompts import list_profiles, ARCHITECTURES
 from prompts.topics import TOPICS, ROUTER_MODE
 import argparse
 import base64
@@ -68,6 +68,11 @@ class EventLogger:
 
 
 logger = EventLogger()
+
+# Which agent architecture new requests use unless the client asks for a
+# specific one: 'multi' (coach + summarizer + memory) or 'single' (the
+# original one-agent librarian, kept as the benchmark baseline).
+DEFAULT_ARCH = os.getenv("BOTBASE_ARCH", "multi")
 
 app = Flask(__name__)
 CORS(app)
@@ -182,6 +187,10 @@ def chat_profile():
     model = data.get('model')
     requested_profile = data.get('profile', "default")
 
+    arch = data.get('arch') or DEFAULT_ARCH
+    if arch not in ARCHITECTURES:
+        arch = DEFAULT_ARCH
+
     # Resolve effective profile for this turn.
     status = chat_status.setdefault(chat_id, {"is_complete": False})
     stored_mode = status.get("mode")
@@ -201,7 +210,8 @@ def chat_profile():
     status["is_complete"] = False
 
     response_text, full_text, full_context = get_LM_response(
-        data.get('fullContext', []), chat_id, model, profile=effective_profile
+        data.get('fullContext', []), chat_id, model, profile=effective_profile,
+        arch=arch
     )
 
     logger.log_event(chat_id, "send_response")
@@ -210,6 +220,7 @@ def chat_profile():
         "chat_id": chat_id,
         "profile": effective_profile,
         "mode": status.get("mode"),
+        "arch": arch,
         "message": {"content": response_text},
         "messages": {"content": full_text, "full_context": full_context}
     })
@@ -232,6 +243,8 @@ def get_topics():
     """List available topic modes (for any UI that wants them)."""
     return jsonify({
         "router": ROUTER_MODE,
+        "arch_default": DEFAULT_ARCH,
+        "architectures": list(ARCHITECTURES),
         "topics": [
             {
                 "key": k,
@@ -416,6 +429,17 @@ def _parse_args():
         ),
     )
     parser.add_argument(
+        "--arch", "-a",
+        choices=list(ARCHITECTURES),
+        default=os.getenv("BOTBASE_ARCH", "multi"),
+        help=(
+            "Default agent architecture: 'multi' runs the coach + summarizer "
+            "+ memory system; 'single' runs the original one-agent librarian "
+            "(the benchmark baseline). Clients can override per request. "
+            "Defaults to $BOTBASE_ARCH, then 'multi'."
+        ),
+    )
+    parser.add_argument(
         "--host", default=os.getenv("BOTBASE_HOST", "0.0.0.0"),
         help="Host to bind (default: 0.0.0.0).",
     )
@@ -429,5 +453,7 @@ def _parse_args():
 if __name__ == '__main__':
     args = _parse_args()
     set_backend(args.backend)
+    DEFAULT_ARCH = args.arch
     print(f"[server] LLM backend: {get_active_backend()}")
+    print(f"[server] agent architecture: {DEFAULT_ARCH}")
     app.run(host=args.host, port=args.port)

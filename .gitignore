@@ -7,6 +7,9 @@ logs/
 logs.db
 logs.db-shm
 logs.db-wal
+memory.db
+memory.db-shm
+memory.db-wal
 model_cache/*
 *.pkl
 *.bin

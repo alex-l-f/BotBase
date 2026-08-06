@@ -11,6 +11,8 @@ from tools import load_tools, get_schemas, dispatch
 from prompts import get_prompt, get_toolset
 from prompts.topics import TOPICS
 from embedding_client import EmbeddingSearchClient
+from memory import MemoryStore
+from trace import AgentTracer, clip
 
 
 def _initial_database_for_profile(profile: str | None) -> str | None:
@@ -81,6 +83,12 @@ def clean_tool_calls(text: str) -> str:
 message_queues = {}
 chat_status = {}
 
+# Episodic memory + instrumentation store. Single-writer: record_turn() is
+# called from exactly one place (end of get_LM_response); everything else
+# only reads. Turns are logged in BOTH architectures so the single-agent
+# baseline builds the same eval corpus.
+memory_store = MemoryStore()
+
 # Configure logging
 if not os.path.exists('logs'):
     os.makedirs('logs')
@@ -134,20 +142,20 @@ def reset_complete(chat_id):
         chat_status[chat_id]["is_complete"] = False
 
 
-def start_conversation(system_prompt: str = None, profile: str = None):
+def start_conversation(system_prompt: str = None, profile: str = None, arch: str = "single"):
     if system_prompt is not None:
         prompt = system_prompt
     else:
-        prompt = get_prompt(profile or "default")
+        prompt = get_prompt(profile or "default", arch)
     conversation = Conversation(prompt)
     return conversation
 
 
-def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str = None, system_prompt: str = None, toolset=None, profile: str = None):
+def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str = None, system_prompt: str = None, toolset=None, profile: str = None, arch: str = "single"):
     llm_interface = LLMInterface("") #stick to defualt for now until integrated into the frontend
-    conversation = start_conversation(system_prompt, profile)
+    conversation = start_conversation(system_prompt, profile, arch)
     if toolset is None:
-        toolset = get_toolset(profile or "default")
+        toolset = get_toolset(profile or "default", arch)
     conversation.append_history(conversation_dict)
 
     last_user_message = None
@@ -166,6 +174,20 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
 
     embedding_search = EmbeddingSearchClient()
 
+    tracer = AgentTracer(chat_id, message_queues, memory_store)
+
+    # The one always-injected memory tier: a small, hard-capped snapshot of
+    # prior sessions. Multi-agent only — the single-agent baseline stays a
+    # pure comparison target.
+    profile_block = ""
+    if arch == "multi":
+        profile_block = memory_store.profile_block(exclude_chat=chat_id)
+        if profile_block and conversation.history and \
+                conversation.history[0].get("role") == "system":
+            conversation.history[0]["content"] += profile_block
+            tracer.emit("memory", "inject", {"chars": len(profile_block)},
+                        persist={"block": profile_block})
+
     context = {
         "message_queues": message_queues,
         "chat_id": chat_id,
@@ -177,9 +199,25 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
         "database": _initial_database_for_profile(profile),
         "fields_to_remove": ["embedding"],
         "chat_status": chat_status,
+        # Multi-agent plumbing: which architecture this turn runs, the
+        # tracer + memory reader for tools, the injected snapshot (so
+        # switch_mode can preserve it across a prompt swap), and the LLM
+        # classes so ask_library can spawn a summarizer without importing
+        # this module back.
+        "arch": arch,
+        "tracer": tracer,
+        "memory_store": memory_store,
+        "profile_block": profile_block,
+        "llm_interface_cls": LLMInterface,
+        "conversation_cls": Conversation,
     }
 
     tool_schemas = get_schemas(toolset)
+
+    tracer.emit("coach", "turn_start", {
+        "arch": arch,
+        "user_message": clip(last_user_message, 300),
+    })
 
     for i in range(20):
         response, tools = llm_interface.get_tools_completion(conversation, tool_schemas)
@@ -187,13 +225,24 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
         if response is None:
             response = ''
 
+        if response.strip():
+            tracer.emit("coach", "llm_output", {"text": clip(response)})
+
         # Expose this turn's full tool-call list so individual tools can
         # reason about siblings (e.g. finish_turn refuses to run when
         # other tools were called in the same model response).
         context["tools_in_response"] = tools
 
         for tool in tools:
+            tracer.emit("coach", "tool_call", {
+                "name": tool["name"],
+                "args": clip(tool["arguments"], 400),
+            }, persist={"name": tool["name"], "args": tool["arguments"]})
             result = dispatch(tool["name"], tool["arguments"], context)
+            tracer.emit("coach", "tool_result", {
+                "name": tool["name"],
+                "result": clip(result),
+            }, persist={"name": tool["name"], "result": result})
             conversation.add_tool_message(tool["id"], tool["name"], result)
 
         if state["needs_regeneration"]:
@@ -224,6 +273,24 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
             full_context.append(msg)
             if msg not in conversation_dict:
                 new_messages.append(msg)
+
+    # Episodic memory write — the single writer's only call site. Mode is
+    # read after the loop so a mid-turn switch_mode is recorded correctly.
+    final_mode = (chat_status.get(chat_id) or {}).get("mode") or profile
+    turn_messages = []
+    if last_user_message:
+        turn_messages.append({"role": "user", "content": last_user_message})
+    turn_messages.extend(new_messages)
+    try:
+        rows_written = memory_store.record_turn(chat_id, final_mode, turn_messages)
+        tracer.emit("memory", "write", {
+            "rows": rows_written,
+            "mode": final_mode,
+        })
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Memory write failed: %s", exc)
+
+    tracer.emit("coach", "turn_done", {})
 
     if chat_id in chat_status:
         chat_status[chat_id]["is_complete"] = True

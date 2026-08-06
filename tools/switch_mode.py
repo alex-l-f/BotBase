@@ -2,13 +2,6 @@ from .base import BaseTool
 from prompts.topics import TOPICS, ROUTER_MODE, content_topic_keys
 
 
-def _load_prompt(prompt_module: str) -> str:
-    """Import the prompt module and return its PROMPT string."""
-    import importlib
-    module = importlib.import_module(f"prompts.{prompt_module}")
-    return module.PROMPT
-
-
 class SwitchMode(BaseTool):
     schema = {
         "type": "function",
@@ -65,11 +58,16 @@ class SwitchMode(BaseTool):
         # Load the new prompt and swap it into the live conversation history.
         # context['conversation_history'] is a reference to the same list the
         # Conversation object holds, so this takes effect for the rest of the
-        # current turn.
+        # current turn. The prompt is resolved through prompts.get_prompt so
+        # the multi-agent overlay (and any injected memory snapshot) survive
+        # the swap.
         try:
-            new_prompt = _load_prompt(topic["prompt_module"])
+            from prompts import get_prompt
+            new_prompt = get_prompt(target, arch=context.get("arch", "single"))
         except Exception as exc:
             return f"ERROR: Could not load prompt for mode {target!r}: {exc}"
+
+        new_prompt += context.get("profile_block") or ""
 
         history = context.get("conversation_history")
         if history and history[0].get("role") == "system":

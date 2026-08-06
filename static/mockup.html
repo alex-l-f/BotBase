@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BotBase Chat</title>
+<title>BotBase — multi-agent debug mockup</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1758,6 +1758,168 @@ async function resetChat() {
 }
 
 input.focus();
+</script>
+<script>
+// ---------------------------------------------------------------------------
+// MOCKUP DATA — populates the transcript and the per-agent debug panes with a
+// canned three-turn conversation. Everything below calls the page's own render
+// functions, so the mockup shows exactly what the live UI produces.
+// ---------------------------------------------------------------------------
+
+setDebug(true);
+welcomeEl.classList.add('welcome-hidden');
+topicLabels['router'] = 'Router';
+topicLabels['coping_stress'] = 'Coping — Stress';
+
+const AE = (agent, type, data) =>
+  handleQueueMessage({ role: 'agent_event', agent: agent, type: type, data: data });
+
+// ======================= Turn 1 — router triage ============================
+
+appendMessage('user', "I'm stressed and want to understand what's happening to me.");
+AE('coach', 'turn_start', { arch: 'multi',
+  user_message: "I'm stressed and want to understand what's happening to me." });
+
+renderInternal('model output',
+  'Clear stress-education signal — route to coping_stress and acknowledge the switch briefly.');
+AE('coach', 'llm_output',
+  { text: 'Clear stress-education signal — route to coping_stress and acknowledge the switch briefly.' });
+
+renderToolCalls([{ name: 'switch_mode', arguments: {
+  target_mode: 'coping_stress',
+  reason: 'User wants to understand their stress response' } }]);
+AE('coach', 'tool_call', { name: 'switch_mode',
+  args: '{"target_mode": "coping_stress", "reason": "User wants to understand their stress response"}' });
+
+renderModeSwitch('coping_stress', 'Coping — Stress');
+renderToolResult("Switched to mode 'coping_stress' (Coping — Stress). Search now scoped to provider 'coping_stress'. Reason: User wants to understand their stress response. Available content modes: coping_mental_skills, coping_recovery, coping_stress, other_content, performance.");
+AE('coach', 'tool_result', { name: 'switch_mode',
+  result: "Switched to mode 'coping_stress' (Coping — Stress). Search now scoped to provider 'coping_stress'." });
+
+appendMessage('assistant',
+  "Okay — let's look at stress fundamentals. First, what you're feeling has a name and a mechanism, and it's the same one every human body runs. Tell me a bit about how your stress shows up — is it more physical (racing heart, tight chest), mental (blanking out, spiralling thoughts), or both?");
+AE('coach', 'tool_call', { name: 'send_message',
+  args: '{"message": "Okay — let\'s look at stress fundamentals. First, what you\'re feeling has a name and a mechanism…"}' });
+AE('coach', 'tool_result', { name: 'send_message', result: 'Queued message to user.' });
+
+AE('memory', 'write', { rows: 2, mode: 'coping_stress' });
+AE('coach', 'turn_done', {});
+
+// ================ Turn 2 — coach delegates to the summarizer ===============
+
+AE('memory', 'inject', { chars: 412 });
+
+appendMessage('user', "Both, honestly. Why does my heart race and my mind go blank when I'm under pressure?");
+AE('coach', 'turn_start', { arch: 'multi',
+  user_message: "Both, honestly. Why does my heart race and my mind go blank when I'm under pressure?" });
+
+renderInternal('model output',
+  'Physiology question — delegate to the library summarizer instead of answering from memory, then deliver the PSS if the user wants to measure.');
+AE('coach', 'llm_output',
+  { text: 'Physiology question — delegate to the library summarizer instead of answering from memory.' });
+
+const libQuestion = 'What explains the physical stress response — racing heart, mind going blank under pressure? Which resources cover it and what do they say?';
+renderToolCalls([{ name: 'ask_library', arguments: { question: libQuestion } }]);
+AE('coach', 'tool_call', { name: 'ask_library',
+  args: JSON.stringify({ question: libQuestion }) });
+
+AE('summarizer', 'spawn', { question: libQuestion, model: 'openai/gpt-oss-20b' });
+AE('summarizer', 'tool_call', { name: 'search_resources',
+  args: '{"query": "heart racing under stress, physiology of stress, fight or flight, mind goes blank"}' });
+AE('summarizer', 'tool_result', { name: 'search_resources',
+  result: '{"resources": [{"id": "RES_00007", "title": "Physiology of Stress_Fact Sheet_EN_1.0.pdf", "source_type": "pdf"}, {"id": "RES_00003", "title": "r2mr_stress_response_master_eng (1080p).mp4", "source_type": "video"}, {"id": "RES_00012", "title": "Perceived Stress Scale_EN.docx", "source_type": "docx"}], "search_summary": "Searched database coping_stress for: heart racing under stress — Found 3 relevant resources"}' });
+AE('summarizer', 'tool_call', { name: 'examine_resource',
+  args: '{"resource_id": "RES_00007"}' });
+AE('summarizer', 'tool_result', { name: 'examine_resource',
+  result: 'title: Physiology of Stress_Fact Sheet_EN_1.0.pdf\ndescription: The stress response is driven by the amygdala triggering the fight/flight/freeze reaction before the cortex can evaluate the threat. Adrenaline raises heart rate and redirects blood to large muscle groups; cortisol sustains arousal. Rational thinking is impaired because…' });
+
+const summaryStruct = {
+  answer: 'The fight/flight/freeze response explains both symptoms: the amygdala triggers it before the cortex can evaluate the threat. Adrenaline raises heart rate and redirects blood to the large muscle groups, while blood flow away from the prefrontal cortex is why rational thinking feels impaired — the "mind going blank".',
+  key_points: [
+    'Amygdala fires before conscious evaluation — the response is automatic, not a character flaw',
+    'Adrenaline → racing heart; cortisol sustains the arousal',
+    'Impaired rational thinking under acute stress is expected physiology',
+    'Training (e.g. tactical breathing) can reshape the response over time'
+  ],
+  resources: [
+    { id: 'RES_00007', title: 'Physiology of Stress — Fact Sheet', source_type: 'pdf',
+      why_relevant: 'Canonical explanation of the mechanism the user is asking about' },
+    { id: 'RES_00012', title: 'Perceived Stress Scale (PSS)', source_type: 'docx',
+      why_relevant: 'If the user wants to measure how stressed they have been recently' }
+  ],
+  confidence: 'high',
+  notes: '',
+  source: 'library:coping_stress',
+  timestamp: '2026-08-06T14:32:19',
+  tool_calls: 2
+};
+AE('summarizer', 'summary', { confidence: 'high',
+  answer: summaryStruct.answer, resources: 2, tool_calls: 2 });
+
+renderToolResult(summaryStruct);
+AE('coach', 'tool_result', { name: 'ask_library',
+  result: JSON.stringify(summaryStruct).slice(0, 420) + ' …[truncated]' });
+
+appendMessage('assistant',
+  "That's your fight-or-flight response — and it's working exactly as designed. According to the Physiology of Stress fact sheet: your amygdala triggers the reaction before the thinking part of your brain even gets a vote. Adrenaline speeds up your heart to push blood to your big muscles, and because blood shifts away from the prefrontal cortex, rational thinking genuinely gets harder — that's the blank mind. Nothing is malfunctioning; it's a survival program firing in a situation that doesn't need it.\n\nIf you'd like to see where you sit right now, the 10-item Perceived Stress Scale takes about 3 minutes:");
+AE('coach', 'tool_call', { name: 'send_message',
+  args: '{"message": "That\'s your fight-or-flight response — and it\'s working exactly as designed…"}' });
+AE('coach', 'tool_result', { name: 'send_message', result: 'Queued message to user.' });
+
+renderToolCalls([{ name: 'provide_file', arguments: {
+  resource_id: 'RES_00012', note: 'The 10-item PSS self-assessment' } }]);
+renderFileCard({
+  resource_id: 'RES_00012',
+  title: 'Perceived Stress Scale (PSS)',
+  source_type: 'docx',
+  source_file: 'Perceived Stress Scale_EN.docx',
+  url: '#',
+  note: 'A 10-item self-assessment of how stressed you have felt over the past month — takes about 3 minutes.',
+  summary: 'Includes scoring instructions with reverse-scored items.'
+});
+AE('coach', 'tool_call', { name: 'provide_file',
+  args: '{"resource_id": "RES_00012", "note": "The 10-item PSS self-assessment"}' });
+AE('coach', 'tool_result', { name: 'provide_file',
+  result: "Sent file 'Perceived Stress Scale (PSS)' (docx) to user." });
+
+AE('memory', 'write', { rows: 3, mode: 'coping_stress' });
+AE('coach', 'turn_done', {});
+
+// ================= Turn 3 — coach recalls from memory ======================
+
+AE('memory', 'inject', { chars: 486 });
+
+appendMessage('user', 'Last week you showed me a breathing exercise — what was it called again?');
+AE('coach', 'turn_start', { arch: 'multi',
+  user_message: 'Last week you showed me a breathing exercise — what was it called again?' });
+
+renderToolCalls([{ name: 'memory_search', arguments: { query: 'breathing exercise' } }]);
+AE('coach', 'tool_call', { name: 'memory_search', args: '{"query": "breathing exercise"}' });
+AE('memory', 'search', { query: 'breathing exercise', hits: 2 });
+
+const memHits = { hits: [
+  { when: '2026-07-30T18:12:05', session: 'a3f9c2e1', mode: 'coping_mental_skills', kind: 'assistant',
+    excerpt: "Let's try tactical breathing: breathe in for 4 seconds, hold for 4, out for 4, hold for 4 — four rounds …",
+    source: 'memory.db episodic log' },
+  { when: '2026-07-30T18:14:41', session: 'a3f9c2e1', mode: 'coping_mental_skills', kind: 'user',
+    excerpt: 'that breathing exercise really helped before my briefing',
+    source: 'memory.db episodic log' }
+] };
+renderToolResult(memHits);
+AE('coach', 'tool_result', { name: 'memory_search',
+  result: JSON.stringify(memHits).slice(0, 300) + ' …[truncated]' });
+
+appendMessage('assistant',
+  'That was tactical breathing — sometimes called box breathing: in for 4 seconds, hold for 4, out for 4, hold for 4, repeated for about four rounds. From your session on July 30 you mentioned it helped before a briefing. Want to run through it together now, or switch over to Mental Skills for the full guided practice audio?');
+AE('coach', 'tool_call', { name: 'send_message',
+  args: '{"message": "That was tactical breathing — sometimes called box breathing…"}' });
+AE('coach', 'tool_result', { name: 'send_message', result: 'Queued message to user.' });
+
+AE('memory', 'write', { rows: 2, mode: 'coping_stress' });
+AE('coach', 'turn_done', {});
+
+chatArea.scrollTop = chatArea.scrollHeight;
+
 </script>
 </body>
 </html>
