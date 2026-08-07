@@ -110,6 +110,7 @@
   body:not(.debug) .tool-group,
   body:not(.debug) .mode-divider,
   body:not(.debug) #arch-select,
+  body:not(.debug) #memory-btn,
   body:not(.debug) #profile-select { display: none; }
 
   #arch-select {
@@ -856,6 +857,7 @@
   <select id="profile-select" title="Starting profile (only matters before the first switch_mode call)">
     <option value="router">router</option>
   </select>
+  <button id="memory-btn" class="header-btn" title="Browse and edit what the bot remembers across sessions">🧠 Memory</button>
   <button id="debug-toggle" class="header-btn" title="Show behind-the-scenes tool calls and debug controls">Debug</button>
   <button id="reset-btn" class="header-btn" title="Start a fresh chat session">Reset</button>
 </header>
@@ -1286,6 +1288,9 @@ input.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', () => send());
 resetBtn.addEventListener('click', resetChat);
+document.getElementById('memory-btn').addEventListener('click', () => {
+  window.open(`${API}/memory`, '_blank');
+});
 
 // Welcome chips: clicking a starter sends it as the user's first message.
 welcomeEl.querySelectorAll('.chip').forEach(chip => {

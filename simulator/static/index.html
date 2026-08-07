@@ -233,7 +233,7 @@ function renderRuns() {
       <div><label>Bot server URL</label><input id="nr-url" value="${esc(CONFIG.default_bot_url)}" style="width:100%"></div>
       <div><label>Bot profile</label>
         <div style="display:flex;gap:.4rem">
-          <input id="nr-profile" value="default" list="profileList" style="flex:1">
+          <input id="nr-profile" value="router" list="profileList" style="flex:1">
           <datalist id="profileList"></datalist>
           <button class="btn secondary small" onclick="fetchProfiles()" title="Fetch profiles + architectures from bot server">↻</button>
         </div></div>
@@ -295,6 +295,13 @@ async function fetchProfiles() {
     const data = await api('/api/bot/profiles', { method: 'POST', body: { url } });
     document.getElementById('profileList').innerHTML =
       data.profiles.map(p => `<option value="${esc(p)}">`).join('');
+    // Seed the profile field with the bot's router (entry-point) profile —
+    // the one a real user lands on — unless the reviewer already typed a
+    // deliberate choice of their own.
+    const profileInput = document.getElementById('nr-profile');
+    if (data.router && ['', 'default', 'router'].includes(profileInput.value.trim())) {
+      profileInput.value = data.router;
+    }
     // Rebuild the architecture options from what this server actually
     // supports (a pre-multi-agent server reports none — keep just the
     // server-default option then).

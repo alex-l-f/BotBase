@@ -325,11 +325,12 @@ def bot_profiles():
             arch_info = client.get_architectures()
         except BotClientError:
             # Pre-multi-agent server; profiles alone are still useful.
-            arch_info = {"architectures": [], "default": None}
+            arch_info = {"architectures": [], "default": None, "router": None}
         return jsonify({
             "profiles": profiles,
             "architectures": arch_info["architectures"],
             "arch_default": arch_info["default"],
+            "router": arch_info["router"],
         })
     except BotClientError as e:
         return jsonify({"error": str(e)}), 502

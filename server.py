@@ -9,6 +9,7 @@ from agent import (
     chat_status,
     set_backend,
     get_active_backend,
+    memory_store,
     BACKENDS,
 )
 from prompts import list_profiles, ARCHITECTURES
@@ -27,6 +28,8 @@ mimetypes.add_type('application/javascript', '.js')
 import sqlite3
 from datetime import datetime
 import threading
+
+import scenarios
 
 # Where the source files referenced by `source_path` live.
 DATA_ROOT = os.path.join(os.path.dirname(__file__), 'data')
@@ -95,6 +98,10 @@ def require_password():
         return None
     if request.path == '/':
         return send_from_directory('static', 'login.html'), 401
+    if request.path == '/memory':
+        # Serve the (static, harmless) browser shell; its API calls will
+        # 401 and the page shows a link back to the login page.
+        return send_from_directory('static', 'memory.html'), 401
     return jsonify({"error": "Not authenticated"}), 401
 
 
@@ -394,6 +401,144 @@ def serve_scorm(package, filename):
     if not os.path.isfile(os.path.join(pkg_dir, 'imsmanifest.xml')):
         abort(404, description=f"Unknown SCORM package: {package}")
     return send_from_directory(pkg_dir, filename)
+
+
+# ------------------------------------------------------------ memory browser
+# Read/edit surface over the episodic memory store, for demos ("show what
+# the bot remembers") and for staging demo state. All writes go through
+# MemoryStore's admin methods so it stays the single writer.
+
+@app.route('/memory')
+def serve_memory_browser():
+    return send_from_directory('static', 'memory.html')
+
+
+@app.route('/api/memory/stats', methods=['GET'])
+def memory_stats():
+    return jsonify(memory_store.stats())
+
+
+@app.route('/api/memory/snapshot', methods=['GET'])
+def memory_snapshot():
+    """The MEMORY SNAPSHOT block exactly as it would be injected into the
+    coach's system prompt right now (optionally excluding one chat)."""
+    block = memory_store.profile_block(
+        exclude_chat=request.args.get('exclude_chat'))
+    return jsonify({"block": block})
+
+
+@app.route('/api/memory/episodes', methods=['GET'])
+def memory_episodes_list():
+    try:
+        limit = max(1, min(200, int(request.args.get('limit', 30))))
+        offset = max(0, int(request.args.get('offset', 0)))
+    except ValueError:
+        return jsonify({"error": "limit/offset must be integers"}), 400
+    result = memory_store.list_episodes(
+        query=request.args.get('query'),
+        mode=request.args.get('mode'),
+        kind=request.args.get('kind'),
+        chat=request.args.get('chat'),
+        limit=limit, offset=offset,
+    )
+    return jsonify(result)
+
+
+@app.route('/api/memory/episodes', methods=['POST'])
+def memory_episodes_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        eid = memory_store.add_episode(
+            chat_id=(data.get('chat_id') or 'manual').strip(),
+            mode=(data.get('mode') or '').strip() or None,
+            kind=(data.get('kind') or '').strip(),
+            content=data.get('content') or '',
+        )
+        return jsonify({"id": eid})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route('/api/memory/episodes/<int:episode_id>', methods=['PUT'])
+def memory_episodes_update(episode_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        ok = memory_store.update_episode(
+            episode_id,
+            content=data.get('content'),
+            mode=(data['mode'].strip() or None) if 'mode' in data else None,
+            kind=data.get('kind'),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not ok:
+        return jsonify({"error": "Episode not found"}), 404
+    return jsonify({"success": True})
+
+
+@app.route('/api/memory/episodes/<int:episode_id>', methods=['DELETE'])
+def memory_episodes_delete(episode_id):
+    if not memory_store.delete_episode(episode_id):
+        return jsonify({"error": "Episode not found"}), 404
+    return jsonify({"success": True})
+
+
+# Scenario snapshots: save the current episodic log under a name, reload it
+# later (optionally re-dated) to replay the same demo state. Stored as JSON
+# files under scenarios/ — see scenarios.py.
+
+@app.route('/api/memory/scenarios', methods=['GET'])
+def memory_scenarios_list():
+    return jsonify({"scenarios": scenarios.list_scenarios()})
+
+
+@app.route('/api/memory/scenarios', methods=['POST'])
+def memory_scenarios_save():
+    data = request.get_json(silent=True) or {}
+    try:
+        slug = scenarios.save_scenario(
+            data.get('name') or '',
+            data.get('description') or '',
+            memory_store.export_episodes(),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"slug": slug})
+
+
+@app.route('/api/memory/scenarios/<slug>/load', methods=['POST'])
+def memory_scenarios_load(slug):
+    try:
+        scenario = scenarios.get_scenario(slug)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if scenario is None:
+        return jsonify({"error": "Scenario not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    episodes = scenario.get("episodes") or []
+    days = data.get('retime_newest_days_ago')
+    if days is not None:
+        try:
+            episodes = scenarios.retime_episodes(episodes, float(days))
+        except (TypeError, ValueError):
+            return jsonify({"error": "retime_newest_days_ago must be a number"}), 400
+    try:
+        loaded = memory_store.replace_episodes(episodes)
+    except ValueError as exc:
+        return jsonify({"error": f"Scenario file invalid: {exc}"}), 400
+    return jsonify({"loaded": loaded, "name": scenario.get("name") or slug})
+
+
+@app.route('/api/memory/scenarios/<slug>', methods=['DELETE'])
+def memory_scenarios_delete(slug):
+    try:
+        ok = scenarios.delete_scenario(slug)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not ok:
+        return jsonify({"error": "Scenario not found"}), 404
+    return jsonify({"success": True})
 
 
 @app.route('/')

@@ -65,8 +65,12 @@ reviewer name (top right) so runs and reviews are attributed to you.
    the two architectures against the same persona and rubric without
    restarting anything — this is exactly the single-vs-multi comparison
    the design brief calls for before expanding the system. The ↻ button
-   next to the profile field probes the bot server for both its profiles
-   and its supported architectures. Since BotBase picks its LLM *backend*
+   next to the profile field probes the bot server for its profiles, its
+   supported architectures, and its router (entry-point) profile. The
+   profile field defaults to `router` — the profile a real user lands
+   on — so simulated conversations exercise the actual coach persona;
+   BotBase's bare `default` profile is a generic assistant that won't
+   reflect real behaviour. Since BotBase picks its LLM *backend*
    at launch, use the free-text "backend note" field to record which
    backend the target server was running (run two instances on different
    ports to compare backends side by side).

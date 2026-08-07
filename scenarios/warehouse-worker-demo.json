@@ -1,0 +1,28 @@
+{
+  "name": "warehouse-worker demo",
+  "description": "returning user, day-after follow-up",
+  "saved_at": "2026-08-07T10:44:23",
+  "episodes": [
+    {
+      "chat_id": "6768adbf-b285-493d-9211-33fc5eb8c08a",
+      "ts": "2026-08-07T09:28:18",
+      "mode": "coping_recovery",
+      "kind": "user",
+      "content": "hey. so how do you even... deal with work when it's just nonstop crap?"
+    },
+    {
+      "chat_id": "6768adbf-b285-493d-9211-33fc5eb8c08a",
+      "ts": "2026-08-07T09:28:18",
+      "mode": "coping_recovery",
+      "kind": "event",
+      "content": "switched mode to coping_recovery (User is dealing with nonstop work and likely burnout.)"
+    },
+    {
+      "chat_id": "6768adbf-b285-493d-9211-33fc5eb8c08a",
+      "ts": "2026-08-07T09:28:18",
+      "mode": "coping_recovery",
+      "kind": "assistant",
+      "content": "Hey there! It sounds like you’re in a tough spot with nonstop work. I can help you get back on track in a few ways:\n\n1. **Take a quick burnout check‑in** – I can share a 16‑question self‑assessment (the OLBI) to see where you’re sitting.\n2. **Get a practical recovery checklist** – a handy list of sleep, detachment, exercise, and self‑care actions you can start this week.\n3. **Learn why active vs. passive recovery matters** – a short explanation of how detaching from work actually helps you recharge.\n\nOr tell me what’s going on and I’ll point you to the right resource. Let me know what you’d like to try first!"
+    }
+  ]
+}

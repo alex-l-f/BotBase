@@ -87,6 +87,14 @@ LMInterface/          LLM backend adapters
 | GET  | `/api/get-messages/<chat_id>` | Poll for new messages |
 | GET  | `/api/profiles` | List available profiles |
 | POST | `/api/log-event` | Log a custom event |
+| GET  | `/memory` | Memory browser/editor page |
+| GET  | `/api/memory/stats` | Episode/session counts and known modes |
+| GET  | `/api/memory/snapshot` | The MEMORY SNAPSHOT block as it would be injected now |
+| GET/POST | `/api/memory/episodes` | Browse (filter/paginate) or add memory entries |
+| PUT/DELETE | `/api/memory/episodes/<id>` | Edit or delete one memory entry |
+| GET/POST | `/api/memory/scenarios` | List scenarios / save current memory as one |
+| POST | `/api/memory/scenarios/<slug>/load` | Replace memory with a scenario (optional re-dating) |
+| DELETE | `/api/memory/scenarios/<slug>` | Delete a saved scenario file |
 
 ## Adding Tools
 
@@ -203,6 +211,8 @@ The design follows the prototype path in `multi-agent-paradigms-2026.md` §6: a 
 - *Read path* — the `memory_search` tool (pull, on the coach's initiative).
 - *Always-injected* — one hard-capped (~300 token) MEMORY SNAPSHOT block derived with plain SQL: prior session count, topics visited, recent asks.
 - *Instrumentation* — every tool call and agent event is persisted to `trace_log` (the future push-channel spec and eval corpus, per the brief).
+- *Browser/editor* — `/memory` (also via the 🧠 Memory button in debug mode) shows the live injected snapshot and the episodic log with search, filters, inline editing, deletion, and an add form — useful for staging demo state and for showing an audience exactly what the bot remembers. Edits go through `MemoryStore`'s admin methods, preserving the single-writer rule. Note the store is global: all sessions (including simulator runs) share one memory pool.
+- *Scenarios* — the browser's Scenarios card snapshots the whole episodic log under a name and reloads it later (destructive replace, confirm-guarded), so a staged demo ("user returns the day after a session") is repeatable. On load, timestamps can be re-dated so the newest entry is always N days ago, preserving relative spacing — the "day after" framing survives no matter when the demo runs. Scenarios are plain JSON files under `scenarios/`; sync or hand-edit them freely. After loading one, hit Reset in the chat UI so the new state applies to a fresh session.
 
 **Selecting the architecture.** Server default via `--arch multi|single` or `BOTBASE_ARCH`; the frontend's debug mode has a per-request selector, so you can run the brief's §6 comparison — same question, same budget, single vs. multi — from the UI.
 

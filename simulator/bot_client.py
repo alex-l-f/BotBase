@@ -87,11 +87,14 @@ class BotClient:
             raise BotClientError(f"profiles failed: {e}")
 
     def get_architectures(self):
-        """Agent architectures the bot server supports, plus its default.
+        """Agent architectures the bot server supports, its default, and
+        the server's router profile key (the entry-point profile a real
+        user lands on).
 
-        Returns {"architectures": [...], "default": str|None}. A BotBase
-        server from before the multi-agent split has no such fields in
-        /api/topics — treat that as 'no choice to offer'."""
+        Returns {"architectures": [...], "default": str|None,
+        "router": str|None}. A BotBase server from before the multi-agent
+        split has no arch fields in /api/topics — treat that as 'no
+        choice to offer'."""
         try:
             resp = self.session.get(f"{self.base_url}/api/topics", timeout=30)
             resp.raise_for_status()
@@ -99,6 +102,7 @@ class BotClient:
             return {
                 "architectures": data.get("architectures") or [],
                 "default": data.get("arch_default"),
+                "router": data.get("router"),
             }
         except requests.RequestException as e:
             raise BotClientError(f"topics failed: {e}")
