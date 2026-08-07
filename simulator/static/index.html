@@ -142,7 +142,11 @@
 </main>
 
 <script>
-const API = '';
+// Base the API on wherever this page is mounted, so it works both at the
+// server root (dev: http://localhost:5561/) and behind a path-prefixed
+// reverse proxy (e.g. https://host/simulator). The page is served at the
+// proxy mount root, so pathname is exactly that prefix.
+const API = window.location.origin + window.location.pathname.replace(/\/+$/, '');
 let CONFIG = { default_bot_url: 'http://localhost:5551', model_suggestions: [] };
 let personas = [], rubrics = [], runs = [];
 let currentView = 'runs';
@@ -231,8 +235,14 @@ function renderRuns() {
         <div style="display:flex;gap:.4rem">
           <input id="nr-profile" value="default" list="profileList" style="flex:1">
           <datalist id="profileList"></datalist>
-          <button class="btn secondary small" onclick="fetchProfiles()" title="Fetch profiles from bot server">↻</button>
+          <button class="btn secondary small" onclick="fetchProfiles()" title="Fetch profiles + architectures from bot server">↻</button>
         </div></div>
+      <div><label>Architecture</label>
+        <select id="nr-arch" style="width:100%" title="Agent architecture: multi (coach + summarizer + memory) or single (one-agent baseline). Server default when unset.">
+          <option value="">server default</option>
+          <option value="multi">multi</option>
+          <option value="single">single</option>
+        </select></div>
       <div><label>Backend note (e.g. "llama.cpp" / "openrouter")</label>
         <input id="nr-backend" placeholder="which backend the bot server runs" style="width:100%"></div>
     </div>
@@ -253,13 +263,14 @@ function renderRuns() {
   if (!runs.length) { tbl.innerHTML = '<div class="empty">No runs yet.</div>'; }
   else {
     tbl.innerHTML = `<table><thead><tr>
-      <th>#</th><th>Label</th><th>Persona</th><th>Profile</th><th>Backend</th><th>Msgs</th>
+      <th>#</th><th>Label</th><th>Persona</th><th>Profile</th><th>Arch</th><th>Backend</th><th>Msgs</th>
       <th>Score</th><th>Reviews</th><th>Status</th><th>Started</th></tr></thead><tbody>
       ${runs.map(r => `<tr class="clickable" onclick="openRun(${r.id})">
         <td>${r.id}</td>
         <td>${esc(r.name) || '<span class="muted">—</span>'}</td>
         <td>${esc(r.persona_name || '?')}</td>
         <td>${esc(r.bot_profile)}</td>
+        <td>${esc(r.bot_arch) || '<span class="muted">default</span>'}</td>
         <td>${esc(r.bot_backend_note) || '<span class="muted">—</span>'}</td>
         <td>${r.message_count ?? 0}</td>
         <td>${r.latest_score != null ? `<span class="score-pill ${scoreClass(r.latest_score)}">${r.latest_score}</span>` : '<span class="muted">—</span>'}</td>
@@ -284,7 +295,17 @@ async function fetchProfiles() {
     const data = await api('/api/bot/profiles', { method: 'POST', body: { url } });
     document.getElementById('profileList').innerHTML =
       data.profiles.map(p => `<option value="${esc(p)}">`).join('');
-    showError(`Found ${data.profiles.length} profiles — pick from the dropdown`);
+    // Rebuild the architecture options from what this server actually
+    // supports (a pre-multi-agent server reports none — keep just the
+    // server-default option then).
+    const archSel = document.getElementById('nr-arch');
+    const archs = data.architectures || [];
+    archSel.innerHTML =
+      `<option value="">server default${data.arch_default ? ` (${esc(data.arch_default)})` : ''}</option>` +
+      archs.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+    showError(`Found ${data.profiles.length} profiles`
+      + (archs.length ? ` and ${archs.length} architectures` : '')
+      + ' — pick from the dropdowns');
   } catch (e) { showError(e.message); }
 }
 
@@ -298,6 +319,7 @@ async function startRun() {
       max_turns: +document.getElementById('nr-turns').value || 10,
       bot_url: document.getElementById('nr-url').value.trim(),
       bot_profile: document.getElementById('nr-profile').value.trim() || 'default',
+      bot_arch: document.getElementById('nr-arch').value,
       bot_backend_note: document.getElementById('nr-backend').value.trim(),
       name: document.getElementById('nr-name').value.trim(),
       created_by: reviewerName(),
@@ -367,6 +389,7 @@ async function renderRunDetail() {
       <div class="muted">
         Persona: <strong>${esc(p.name || '?')}</strong> (${esc(p.model || '?')}) ·
         Bot: ${esc(run.bot_url)} / profile <strong>${esc(run.bot_profile)}</strong>
+        · arch: <strong>${esc(run.bot_arch) || 'default'}</strong>
         ${run.bot_backend_note ? ` · backend: ${esc(run.bot_backend_note)}` : ''} ·
         max ${run.max_turns} turns · started ${fmtTime(run.created_at)}
         ${run.created_by ? ` by ${esc(run.created_by)}` : ''}

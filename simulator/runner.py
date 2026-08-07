@@ -48,7 +48,7 @@ def start_run(run_id, config):
     """Kick off a simulation run in a background thread.
 
     config: {persona: {...}, rubric: {...}|None, bot_url, bot_profile,
-             bot_password, max_turns}
+             bot_arch, bot_password, max_turns}
     """
     t = threading.Thread(target=_run_simulation, args=(run_id, config), daemon=True)
     _active_runs[run_id] = t
@@ -92,6 +92,7 @@ def _run_simulation(run_id, config):
             config["bot_url"],
             password=config.get("bot_password"),
             profile=config["bot_profile"],
+            arch=config.get("bot_arch"),
         )
         chat_id = bot.start_chat()
         db.update_run(run_id, bot_chat_id=chat_id)

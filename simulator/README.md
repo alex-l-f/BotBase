@@ -55,13 +55,21 @@ reviewer name (top right) so runs and reviews are attributed to you.
    score range, weight) and pick the OpenRouter judge model. The judge
    scores each criterion with a justification; a weighted 0–100 score is
    computed from the results.
-3. **Runs** — pick a persona, rubric, bot URL/profile, and max turns,
-   then start. The transcript streams live; when the conversation ends
-   (the persona decides it's done, or the turn cap is hit) the rubric
-   evaluation runs automatically. Since BotBase picks its LLM backend at
-   launch, use the free-text "backend note" field to record which backend
-   the target server was running (run two instances on different ports to
-   compare backends side by side).
+3. **Runs** — pick a persona, rubric, bot URL/profile, agent
+   architecture, and max turns, then start. The transcript streams live;
+   when the conversation ends (the persona decides it's done, or the turn
+   cap is hit) the rubric evaluation runs automatically. The
+   **architecture** selector (`multi` = coach + summarizer + memory,
+   `single` = the one-agent baseline, blank = whatever the bot server
+   defaults to) is passed per-run to `/api/chat-profile`, so you can A/B
+   the two architectures against the same persona and rubric without
+   restarting anything — this is exactly the single-vs-multi comparison
+   the design brief calls for before expanding the system. The ↻ button
+   next to the profile field probes the bot server for both its profiles
+   and its supported architectures. Since BotBase picks its LLM *backend*
+   at launch, use the free-text "backend note" field to record which
+   backend the target server was running (run two instances on different
+   ports to compare backends side by side).
 4. **Review** — anyone with the password can open a run, read the
    transcript beside its rubric scores, re-evaluate with another rubric,
    and leave attributed star-ratings/comments.
@@ -79,3 +87,27 @@ static/              Web UI
 
 Persona and rubric definitions are snapshotted into each run, so editing
 or archiving them later never changes historical results.
+
+## Hosting at a non-root path
+
+The web UI computes its API base from wherever the page is mounted
+(`window.location.origin + pathname`), so it works unchanged at the
+server root **and** behind a path-prefixed reverse proxy — no hardcoded
+prefix. Point your proxy at the simulator and strip the prefix; e.g.
+nginx:
+
+```nginx
+location = /simulator { return 301 /simulator/; }
+location /simulator/ {
+    proxy_pass http://127.0.0.1:5561/;   # trailing slash strips /simulator
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+The trailing slash on `proxy_pass` makes nginx replace `/simulator/` with
+`/` before forwarding, which is what the Flask app expects; the `= /simulator`
+redirect catches the bare no-slash URL. The server issues no redirects and
+generates no absolute URLs of its own, so nothing else is needed. (The main
+BotBase server uses the same pattern and can share the same proxy config
+style.)

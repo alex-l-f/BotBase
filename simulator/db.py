@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS runs (
     rubric_snapshot TEXT,            -- JSON copy of the rubric at run time
     bot_url TEXT,
     bot_profile TEXT,
+    bot_arch TEXT DEFAULT '',        -- agent architecture ('single'/'multi'; '' = server default)
     bot_backend_note TEXT DEFAULT '',
     max_turns INTEGER DEFAULT 10,
     status TEXT DEFAULT 'pending',   -- pending | running | evaluating | completed | failed
@@ -93,6 +94,11 @@ def _connect():
 def init_db():
     with _connect() as conn:
         conn.executescript(SCHEMA)
+        # Migration for databases created before the multi-agent split:
+        # CREATE TABLE IF NOT EXISTS won't add new columns to old tables.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)")}
+        if "bot_arch" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN bot_arch TEXT DEFAULT ''")
 
 
 def _row_to_dict(row, json_fields=()):
@@ -198,12 +204,13 @@ def create_run(data):
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO runs (name, created_by, persona_id, persona_snapshot, rubric_id, rubric_snapshot, "
-            "bot_url, bot_profile, bot_backend_note, max_turns, status, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?)",
+            "bot_url, bot_profile, bot_arch, bot_backend_note, max_turns, status, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
             (data.get("name", ""), data.get("created_by", ""),
              data["persona_id"], json.dumps(data["persona_snapshot"]),
              data.get("rubric_id"), json.dumps(data.get("rubric_snapshot")),
-             data["bot_url"], data["bot_profile"], data.get("bot_backend_note", ""),
+             data["bot_url"], data["bot_profile"], data.get("bot_arch", ""),
+             data.get("bot_backend_note", ""),
              data.get("max_turns", 10), time.time()),
         )
         return cur.lastrowid
@@ -213,7 +220,7 @@ def list_runs(limit=200):
     with _connect() as conn:
         rows = conn.execute(
             "SELECT r.id, r.name, r.created_by, r.persona_id, r.rubric_id, r.bot_url, r.bot_profile, "
-            "r.bot_backend_note, r.max_turns, r.status, r.error, r.created_at, r.completed_at, "
+            "r.bot_arch, r.bot_backend_note, r.max_turns, r.status, r.error, r.created_at, r.completed_at, "
             "json_extract(r.persona_snapshot, '$.name') AS persona_name, "
             "json_extract(r.rubric_snapshot, '$.name') AS rubric_name, "
             "(SELECT COUNT(*) FROM json_each(r.transcript)) AS message_count, "

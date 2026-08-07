@@ -12,10 +12,15 @@ class BotClientError(RuntimeError):
 
 
 class BotClient:
-    def __init__(self, base_url, password=None, profile="default", timeout=600):
+    def __init__(self, base_url, password=None, profile="default", timeout=600,
+                 arch=None):
         self.base_url = base_url.rstrip("/")
         self.profile = profile
         self.timeout = timeout
+        # Agent architecture ('single' / 'multi'). None means "don't send
+        # the field" — the bot server falls back to its own default, and
+        # pre-multi-agent servers never see an unknown key.
+        self.arch = arch or None
         self.session = requests.Session()
         self.chat_id = None
         self.full_context = []
@@ -51,14 +56,17 @@ class BotClient:
         if not self.chat_id:
             self.start_chat()
         self.full_context.append({"role": "user", "content": user_message})
+        payload = {
+            "chat_id": self.chat_id,
+            "profile": self.profile,
+            "fullContext": self.full_context,
+        }
+        if self.arch:
+            payload["arch"] = self.arch
         try:
             resp = self.session.post(
                 f"{self.base_url}/api/chat-profile",
-                json={
-                    "chat_id": self.chat_id,
-                    "profile": self.profile,
-                    "fullContext": self.full_context,
-                },
+                json=payload,
                 timeout=self.timeout,
             )
             resp.raise_for_status()
@@ -77,3 +85,20 @@ class BotClient:
             return resp.json().get("profiles", [])
         except requests.RequestException as e:
             raise BotClientError(f"profiles failed: {e}")
+
+    def get_architectures(self):
+        """Agent architectures the bot server supports, plus its default.
+
+        Returns {"architectures": [...], "default": str|None}. A BotBase
+        server from before the multi-agent split has no such fields in
+        /api/topics — treat that as 'no choice to offer'."""
+        try:
+            resp = self.session.get(f"{self.base_url}/api/topics", timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "architectures": data.get("architectures") or [],
+                "default": data.get("arch_default"),
+            }
+        except requests.RequestException as e:
+            raise BotClientError(f"topics failed: {e}")

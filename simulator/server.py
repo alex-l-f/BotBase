@@ -214,6 +214,9 @@ def runs_create():
     bot_url = (data.get("bot_url") or DEFAULT_BOT_URL).strip()
     bot_profile = (data.get("bot_profile") or "default").strip()
     bot_password = data.get("bot_password", DEFAULT_BOT_PASSWORD)
+    # '' means "use the bot server's default architecture"; anything else is
+    # sent through verbatim (the bot validates it against its own list).
+    bot_arch = (data.get("bot_arch") or "").strip()
     max_turns = max(1, min(50, int(data.get("max_turns", 10))))
 
     run_id = db.create_run({
@@ -225,6 +228,7 @@ def runs_create():
         "rubric_snapshot": rubric,
         "bot_url": bot_url,
         "bot_profile": bot_profile,
+        "bot_arch": bot_arch,
         "bot_backend_note": data.get("bot_backend_note", ""),
         "max_turns": max_turns,
     })
@@ -234,6 +238,7 @@ def runs_create():
         "rubric": rubric,
         "bot_url": bot_url,
         "bot_profile": bot_profile,
+        "bot_arch": bot_arch,
         "bot_password": bot_password,
         "max_turns": max_turns,
     })
@@ -308,13 +313,24 @@ def reviews_delete(review_id):
 
 @app.route("/api/bot/profiles", methods=["POST"])
 def bot_profiles():
-    """Fetch the profile list from a BotBase server (handles its login)."""
+    """Fetch the profile + architecture lists from a BotBase server
+    (handles its login)."""
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or DEFAULT_BOT_URL).strip()
     password = data.get("password", DEFAULT_BOT_PASSWORD)
     try:
         client = BotClient(url, password=password)
-        return jsonify({"profiles": client.list_profiles()})
+        profiles = client.list_profiles()
+        try:
+            arch_info = client.get_architectures()
+        except BotClientError:
+            # Pre-multi-agent server; profiles alone are still useful.
+            arch_info = {"architectures": [], "default": None}
+        return jsonify({
+            "profiles": profiles,
+            "architectures": arch_info["architectures"],
+            "arch_default": arch_info["default"],
+        })
     except BotClientError as e:
         return jsonify({"error": str(e)}), 502
 

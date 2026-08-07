@@ -35,8 +35,11 @@
     <div class="err" id="err"></div>
   </div>
 <script>
+// Same mount-point-relative API base as index.html, so login works behind
+// a path-prefixed reverse proxy (e.g. https://host/simulator).
+const API = window.location.origin + window.location.pathname.replace(/\/+$/, '');
 async function doLogin() {
-  const resp = await fetch('/login', {
+  const resp = await fetch(`${API}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: document.getElementById('pw').value }),
