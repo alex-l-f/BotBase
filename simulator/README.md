@@ -92,6 +92,12 @@ static/              Web UI
 Persona and rubric definitions are snapshotted into each run, so editing
 or archiving them later never changes historical results.
 
+Bot turns use BotBase's async flow (`chat-profile` with `async: true`,
+then polling): no HTTP request outlives a poll interval, so runs work
+against a bot behind a reverse proxy with short read timeouts. Older
+BotBase servers without async support are detected and handled
+synchronously.
+
 ## Hosting at a non-root path
 
 The web UI computes its API base from wherever the page is mounted

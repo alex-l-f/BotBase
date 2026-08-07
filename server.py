@@ -7,6 +7,7 @@ from agent import (
     is_chat_complete,
     reset_complete,
     chat_status,
+    message_queues,
     set_backend,
     get_active_backend,
     memory_store,
@@ -26,6 +27,7 @@ mimetypes.add_type('application/javascript', '.mjs')
 mimetypes.add_type('application/javascript', '.js')
 
 import sqlite3
+import traceback
 from datetime import datetime
 import threading
 
@@ -215,6 +217,26 @@ def chat_profile():
     # frontend's polling loop doesn't stop on its first fetch of the new
     # turn (which silently dropped queued file/mode events).
     status["is_complete"] = False
+    status.pop("last_result", None)
+
+    # Async mode: run the turn on a background thread and return at once.
+    # The client follows progress via /api/get-messages and collects the
+    # final result from /api/turn-result once is_complete flips — no HTTP
+    # request outlives a poll interval, so neither the browser nor a
+    # reverse proxy ever has a long-lived connection to time out.
+    if data.get('async'):
+        threading.Thread(
+            target=_run_turn_async,
+            args=(chat_id, data.get('fullContext', []), model,
+                  effective_profile, arch),
+            daemon=True,
+        ).start()
+        return jsonify({
+            "chat_id": chat_id,
+            "accepted": True,
+            "profile": effective_profile,
+            "arch": arch,
+        }), 202
 
     response_text, full_text, full_context = get_LM_response(
         data.get('fullContext', []), chat_id, model, profile=effective_profile,
@@ -231,6 +253,46 @@ def chat_profile():
         "message": {"content": response_text},
         "messages": {"content": full_text, "full_context": full_context}
     })
+
+
+def _run_turn_async(chat_id, full_context_in, model, profile, arch):
+    """Body of an async chat turn. Stashes the same payload the sync path
+    returns into chat_status[chat_id]['last_result'] for /api/turn-result."""
+    status = chat_status.setdefault(chat_id, {"is_complete": False})
+    try:
+        response_text, full_text, full_context = get_LM_response(
+            full_context_in, chat_id, model, profile=profile, arch=arch
+        )
+        # Mode is read after the turn so a mid-turn switch_mode is reflected.
+        status["last_result"] = {
+            "profile": profile,
+            "mode": status.get("mode"),
+            "arch": arch,
+            "message": {"content": response_text},
+            "messages": {"content": full_text, "full_context": full_context},
+        }
+    except Exception as exc:
+        traceback.print_exc()
+        status["last_result"] = {
+            "profile": profile,
+            "mode": status.get("mode"),
+            "arch": arch,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        # get_LM_response sets is_complete on its success path only.
+        status["is_complete"] = True
+    finally:
+        logger.log_event(chat_id, "send_response")
+
+
+@app.route('/api/turn-result/<chat_id>', methods=['GET'])
+def turn_result(chat_id):
+    """Final payload of an async turn. ready=false until the background
+    thread has stashed it (is_complete can flip a beat earlier)."""
+    result = (chat_status.get(chat_id) or {}).get("last_result")
+    if not result:
+        return jsonify({"ready": False})
+    return jsonify({"ready": True, "chat_id": chat_id, **result})
 
 
 @app.route('/api/get-mode/<chat_id>', methods=['GET'])

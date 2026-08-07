@@ -727,15 +727,48 @@
     border-color: var(--accent);
   }
 
+  /* Live status indicator: dynamic "what the bot is doing" line driven by
+     the agent-event stream, visible in normal (non-debug) mode too. */
   #typing-indicator {
     align-self: flex-start;
-    padding: 10px 14px;
-    font-size: 16px;
-    color: var(--text-muted);
     display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    background: var(--bot-bg);
+    border-radius: 18px;
+    border-bottom-left-radius: 4px;
+    font-size: 15px;
+    color: var(--text-muted);
   }
 
-  #typing-indicator.visible { display: block; }
+  #typing-indicator.visible { display: inline-flex; }
+
+  #status-text { transition: opacity 0.12s; }
+
+  .status-dots { display: inline-flex; gap: 3px; align-items: center; }
+
+  .status-dots i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.4;
+    animation: dot-bounce 1.2s infinite;
+  }
+
+  .status-dots i:nth-child(2) { animation-delay: 0.2s; }
+  .status-dots i:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes dot-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* In-progress reply: the accumulated send_message text streams into a
+     provisional bubble mid-turn; it's replaced by the final transcript
+     render when the turn completes. */
+  .message.provisional { opacity: 0.92; }
 
   #input-area {
     padding: 12px max(16px, calc((100% - var(--chat-col-w)) / 2));
@@ -916,7 +949,10 @@
           <button class="chip" type="button">Tell me about R2MR.</button>
         </div>
       </div>
-      <div id="typing-indicator">Thinking...</div>
+      <div id="typing-indicator">
+        <span class="status-dots"><i></i><i></i><i></i></span>
+        <span id="status-text">Thinking</span>
+      </div>
     </div>
 
     <div id="input-area">
@@ -1720,16 +1756,88 @@ async function ensureChat() {
   chatId = data.chat_id;
 }
 
-function startPolling() {
-  if (polling) return;
-  polling = true;
-  poll();
+// --- Live status line ---
+// Human-readable "what's happening" text derived from the agent-event
+// stream. Unlike the debug panes this is for everyone, so it speaks in
+// plain language rather than tool names.
+
+const TOOL_STATUS = {
+  search_resources: 'Searching the resource library',
+  examine_resource: 'Reading a resource in detail',
+  ask_library: 'Asking the library assistant',
+  return_summary: 'Summarizing findings',
+  memory_search: 'Recalling previous sessions',
+  switch_mode: 'Switching topic',
+  provide_file: 'Preparing a file to share',
+  open_course_page: 'Opening a course page',
+  send_message: 'Writing a reply',
+};
+
+function statusForEvent(ev) {
+  const d = ev.data || {};
+  const inSummarizer = ev.agent === 'summarizer';
+  switch (ev.type) {
+    case 'turn_start': return 'Thinking';
+    case 'spawn': return 'Asking the library assistant';
+    case 'summary': return 'Library findings in — composing';
+    case 'search': return 'Recalling previous sessions';
+    case 'llm_output': return inSummarizer ? 'Library assistant is reading' : 'Thinking';
+    case 'tool_call': {
+      const s = TOOL_STATUS[d.name];
+      if (!s) return null;
+      return inSummarizer ? 'Library assistant: ' + s.toLowerCase() : s;
+    }
+    default: return null;  // tool_result / write / inject: keep last status
+  }
 }
 
-// Render ephemeral events the server pushes during the turn (file
-// deliveries, mode switches). Plain text 'assistant' messages will
-// be re-rendered from full_context after the response, so skip them
-// here to avoid duplicates.
+function setStatus(text) {
+  if (!text) return;
+  const el = document.getElementById('status-text');
+  if (el.textContent === text) return;
+  el.style.opacity = '0';
+  clearTimeout(setStatus._t);
+  setStatus._t = setTimeout(() => {
+    el.textContent = text;
+    el.style.opacity = '1';
+  }, 120);
+}
+
+// --- Provisional reply bubble ---
+// send_message pushes the accumulated reply text into the queue mid-turn;
+// stream it into one provisional bubble so the user reads the answer as it
+// is written. The final transcript render replaces it.
+
+let provisionalBubble = null;
+
+function showProvisional(content) {
+  const text = (content || '').trim();
+  if (!text) return;
+  if (!provisionalBubble) {
+    provisionalBubble = document.createElement('div');
+    provisionalBubble.className = 'message assistant provisional';
+    chatArea.insertBefore(provisionalBubble, typingIndicator);
+  }
+  provisionalBubble.textContent = text;
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function clearProvisional() {
+  chatArea.querySelectorAll('.provisional').forEach(el => el.remove());
+  provisionalBubble = null;
+}
+
+// Keep provisional content in the transcript (e.g. when the final result
+// never arrived) by just dropping the provisional marker.
+function keepProvisional() {
+  chatArea.querySelectorAll('.provisional')
+    .forEach(el => el.classList.remove('provisional'));
+  provisionalBubble = null;
+}
+
+// Render ephemeral events the server pushes during the turn: file
+// deliveries, mode switches, agent events (debug panes + status line),
+// and in-progress reply text.
 function handleQueueMessage(m) {
   if (m.role === 'assistant_file') {
     renderFileCard(m);
@@ -1738,41 +1846,54 @@ function handleQueueMessage(m) {
   } else if (m.role === 'system_event' && m.event === 'mode_switch') {
     renderModeSwitch(m.mode, m.label);
   } else if (m.role === 'agent_event') {
+    setStatus(statusForEvent(m));
     renderAgentEvent(m);
+  } else if (m.role === 'assistant') {
+    showProvisional(m.content);
   }
 }
 
-async function poll() {
-  if (!polling) return;
-  try {
-    const resp = await fetch(`${API}/api/get-messages/${chatId}`);
-    const data = await resp.json();
-
-    for (const m of (data.messages || [])) handleQueueMessage(m);
-
-    if (data.is_complete) {
-      polling = false;
-      return;
+// Poll the event queue until the turn completes. Resolves true on
+// completion, false on a stall (no queue activity for stallMs) or when
+// `polling` is cleared externally (chat reset).
+async function waitForTurnComplete(stallMs = 300000) {
+  let lastActivity = Date.now();
+  while (polling) {
+    try {
+      const resp = await fetch(`${API}/api/get-messages/${chatId}`);
+      const data = await resp.json();
+      if ((data.messages || []).length > 0) {
+        lastActivity = Date.now();
+        for (const m of data.messages) handleQueueMessage(m);
+      }
+      if (data.is_complete) {
+        polling = false;
+        return true;
+      }
+    } catch (e) {
+      // Transient network error — keep polling; the stall guard bounds us.
     }
-  } catch (e) {
-    // Retry on transient errors
+    if (Date.now() - lastActivity > stallMs) {
+      polling = false;
+      return false;
+    }
+    await new Promise(r => setTimeout(r, 500));
   }
-  setTimeout(poll, 500);
+  return false;
 }
 
-// One last sweep of the event queue after the turn's HTTP response has
-// arrived: anything enqueued after the final in-flight poll fetched
-// (e.g. a provide_file near the end of the turn) would otherwise be lost.
-async function drainQueue() {
-  if (!chatId) return;
-  try {
-    const resp = await fetch(`${API}/api/get-messages/${chatId}`);
-    const data = await resp.json();
-    for (const m of (data.messages || [])) handleQueueMessage(m);
-  } catch (e) {
-    // The transcript from full_context still renders; worst case a file
-    // card is missing, same as before the drain existed.
+// The background thread stashes the result a beat after is_complete flips,
+// so retry briefly instead of failing on the race.
+async function fetchTurnResult(tries = 12) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const resp = await fetch(`${API}/api/turn-result/${chatId}`);
+      const data = await resp.json();
+      if (data.ready) return data;
+    } catch (e) { /* retry */ }
+    await new Promise(r => setTimeout(r, 300));
   }
+  return null;
 }
 
 async function send(prefilled) {
@@ -1787,6 +1908,7 @@ async function send(prefilled) {
   }
   welcomeEl.classList.add('welcome-hidden');
   setLoading(true);
+  setStatus('Thinking');
 
   try {
     await ensureChat();
@@ -1796,29 +1918,48 @@ async function send(prefilled) {
 
     const profile = profileSelect.value;
     inFlightFileIds = new Set(); // reset per-turn dedupe set
-    startPolling();
+    polling = true;
 
+    // Fire-and-poll: the request returns immediately (202); progress and
+    // the final result both arrive over short polls, so there is no
+    // long-lived connection for the browser or a proxy to time out.
     const resp = await fetch(`${API}/api/chat-profile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId, profile, fullContext,
         arch: archSelect.value,
+        async: true,
       }),
     });
+    if (!resp.ok) throw new Error(`Server rejected the request (HTTP ${resp.status}).`);
 
-    const data = await resp.json();
-    polling = false;
-    await drainQueue();
-    fullContext = data.messages?.full_context || fullContext;
-    if (data.mode) setModeBadge(data.mode);
+    const finished = await waitForTurnComplete();
+    if (!finished) {
+      keepProvisional();
+      throw new Error('No response from the server for a while — the turn may have been interrupted.');
+    }
 
-    renderContext(fullContext);
+    const result = await fetchTurnResult();
+    if (result && !result.error) {
+      clearProvisional();
+      fullContext = result.messages?.full_context || fullContext;
+      if (result.mode) setModeBadge(result.mode);
+      renderContext(fullContext);
+    } else {
+      // Turn errored server-side (or the result vanished): keep whatever
+      // streamed in provisionally as the visible record.
+      keepProvisional();
+      if (result?.error) {
+        appendMessage('assistant', `Error: the turn failed on the server (${result.error}).`);
+      }
+    }
     setLoading(false);
     input.focus();
   } catch (e) {
     polling = false;
-    appendMessage('assistant', 'Error: Could not reach the server.');
+    keepProvisional();
+    appendMessage('assistant', e.message || 'Error: Could not reach the server.');
     setLoading(false);
   }
 }
@@ -1827,7 +1968,8 @@ async function resetChat() {
   chatId = null;
   fullContext = [];
   renderedCount = 0;
-  polling = false;
+  polling = false;   // aborts any in-flight waitForTurnComplete loop
+  provisionalBubble = null;
   inFlightFileIds = new Set();
   chatArea.querySelectorAll('.message, .tool-group, .file-card, .mode-divider')
     .forEach(el => el.remove());

@@ -2,7 +2,15 @@
 
 Talks only to the public API (login, start-chat, chat-profile) so the
 simulator has zero code dependency on the main project.
+
+Turns run through the bot's async flow (chat-profile with async=true,
+then polling get-messages / turn-result) so no single HTTP request lasts
+longer than a poll — which survives reverse proxies with short read
+timeouts. A pre-async BotBase server that just runs the turn inline and
+returns 200 with the full payload is still handled.
 """
+
+import time
 
 import requests
 
@@ -60,10 +68,13 @@ class BotClient:
             "chat_id": self.chat_id,
             "profile": self.profile,
             "fullContext": self.full_context,
+            "async": True,
         }
         if self.arch:
             payload["arch"] = self.arch
         try:
+            # self.timeout (not a short one) so a pre-async server that runs
+            # the whole turn inside this request still gets its time.
             resp = self.session.post(
                 f"{self.base_url}/api/chat-profile",
                 json=payload,
@@ -74,9 +85,52 @@ class BotClient:
             raise BotClientError(f"chat-profile failed: {e}")
 
         data = resp.json()
+        if resp.status_code == 202 or data.get("accepted"):
+            data = self._await_turn()
+        # else: pre-async server already returned the full payload.
+
+        if data.get("error"):
+            raise BotClientError(f"bot turn failed: {data['error']}")
         self.full_context = (data.get("messages") or {}).get("full_context") or self.full_context
         reply = (data.get("message") or {}).get("content") or ""
         return reply.strip()
+
+    def _await_turn(self):
+        """Poll an async turn to completion and fetch its final payload."""
+        deadline = time.time() + self.timeout
+        complete = False
+        while time.time() < deadline:
+            try:
+                r = self.session.get(
+                    f"{self.base_url}/api/get-messages/{self.chat_id}",
+                    timeout=30,
+                )
+                r.raise_for_status()
+                if r.json().get("is_complete"):
+                    complete = True
+                    break
+            except requests.RequestException:
+                pass  # transient; bounded by the deadline
+            time.sleep(1.0)
+        if not complete:
+            raise BotClientError(
+                f"bot turn did not complete within {self.timeout}s")
+
+        # The result is stashed a beat after is_complete flips; retry briefly.
+        for _ in range(20):
+            try:
+                r = self.session.get(
+                    f"{self.base_url}/api/turn-result/{self.chat_id}",
+                    timeout=30,
+                )
+                r.raise_for_status()
+                data = r.json()
+                if data.get("ready"):
+                    return data
+            except requests.RequestException:
+                pass
+            time.sleep(0.5)
+        raise BotClientError("bot turn completed but its result never became ready")
 
     def list_profiles(self):
         try:
