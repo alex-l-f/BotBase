@@ -15,12 +15,10 @@
     --text-muted: #666;
     --accent: #0066cc;
     --danger: #b42318;
-    --user-chip: #e6eef8;
-    --user-chip-text: #1f3f6b;
-    --assistant-chip: #e8e8e8;
-    --assistant-chip-text: #333;
-    --event-chip: #f0e8f8;
-    --event-chip-text: #4a3568;
+    --followup-chip: #fbeed8;
+    --followup-chip-text: #6e5318;
+    --template-chip: #e6eef8;
+    --template-chip-text: #1f3f6b;
   }
 
   body {
@@ -41,6 +39,16 @@
   }
 
   header h1 { font-size: 16px; font-weight: 600; }
+
+  #profile-select {
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--surface);
+    max-width: 240px;
+  }
 
   #stats {
     font-size: 12px;
@@ -84,6 +92,13 @@
   }
 
   .card h2 .spacer { margin-left: auto; }
+
+  .card .card-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 10px;
+  }
 
   #auth-banner {
     display: none;
@@ -129,14 +144,14 @@
   .btn.primary:hover { filter: brightness(1.1); color: #fff; }
   .btn.danger:hover { border-color: var(--danger); color: var(--danger); }
 
-  .filters {
+  .filters, .slot-row {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
   }
 
-  .filters input, .filters select, .add-form input, .add-form select, .add-form textarea, td.editing input, td.editing select, textarea.edit-content {
+  .filters input, .filters select, .slot-row select, .slot-row input {
     padding: 6px 9px;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -145,7 +160,16 @@
     background: var(--surface);
     color: var(--text);
   }
-  .filters input:focus, .add-form input:focus, .add-form textarea:focus, textarea.edit-content:focus { outline: none; border-color: var(--accent); }
+  .filters input:focus, .slot-row input:focus { outline: none; border-color: var(--accent); }
+
+  .slot-field { display: flex; flex-direction: column; gap: 2px; }
+  .slot-field label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .slot-field .req { color: var(--danger); }
 
   #f-query { flex: 1; min-width: 180px; }
 
@@ -167,26 +191,34 @@
   }
   tr:last-child td { border-bottom: none; }
 
-  td.col-content { width: 55%; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+  td.col-content { width: 50%; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
   td.col-when, td.col-session { white-space: nowrap; color: var(--text-muted); font-size: 12px; }
   td.col-actions { white-space: nowrap; text-align: right; }
   td.col-actions .btn { padding: 3px 8px; }
 
-  .kind-chip {
+  .template-chip {
     display: inline-block;
     padding: 1px 8px;
     border-radius: 10px;
     font-size: 11px;
     font-weight: 600;
+    background: var(--template-chip);
+    color: var(--template-chip-text);
+    white-space: nowrap;
   }
-  .kind-user { background: var(--user-chip); color: var(--user-chip-text); }
-  .kind-assistant { background: var(--assistant-chip); color: var(--assistant-chip-text); }
-  .kind-event { background: var(--event-chip); color: var(--event-chip-text); }
 
-  .mode-tag { font-size: 12px; color: var(--text-muted); }
+  .followup-chip {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--followup-chip);
+    color: var(--followup-chip-text);
+    white-space: nowrap;
+  }
 
-  textarea.edit-content { width: 100%; min-height: 70px; resize: vertical; }
-  .edit-row-controls { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .edit-row-controls { display: flex; gap: 6px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
 
   .pager {
     display: flex;
@@ -197,9 +229,6 @@
     color: var(--text-muted);
     margin-top: 8px;
   }
-
-  .add-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
-  .add-form textarea { flex: 1 1 100%; min-height: 54px; resize: vertical; }
 
   .empty-note { color: var(--text-muted); font-size: 13px; padding: 14px 0; text-align: center; }
 
@@ -224,6 +253,7 @@
 
 <header>
   <h1>🧠 Memory Browser</h1>
+  <select id="profile-select" title="User profile whose memory is shown"></select>
   <span id="stats">loading…</span>
   <a class="header-link" id="back-link" href="#">← Back to chat</a>
 </header>
@@ -238,6 +268,12 @@
       <span class="spacer"></span>
       <button class="btn" onclick="loadSnapshot()">↻ Refresh</button>
     </h2>
+    <div class="card-note">
+      Prepended to the coach's system prompt at the start of every
+      multi-agent turn for this profile. Memory is template-only: each note
+      below is a template key plus fixed slot values — the store cannot hold
+      free text, so nothing the user literally said is ever kept.
+    </div>
     <div id="snapshot-block" class="empty">loading…</div>
   </div>
 
@@ -246,15 +282,20 @@
       <span class="spacer"></span>
       <button class="btn" onclick="loadScenarios()">↻ Refresh</button>
     </h2>
-    <div class="add-form" style="margin-bottom:10px">
+    <div class="card-note">
+      A scenario snapshots the selected profile's notes to a JSON file and
+      can be loaded back into any profile (replacing its notes) — handy for
+      repeatable "returning user" demos.
+    </div>
+    <div class="filters" style="margin-bottom:10px">
       <input id="sc-name" placeholder="scenario name, e.g. day-after-followup" style="flex:1;min-width:180px">
       <input id="sc-desc" placeholder="description (optional)" style="flex:2;min-width:220px">
-      <button class="btn primary" onclick="saveScenario()" title="Snapshot the entire current memory log under this name">💾 Save current memory</button>
+      <button class="btn primary" onclick="saveScenario()" title="Snapshot the selected profile's notes under this name">💾 Save profile memory</button>
     </div>
     <div class="filters" style="margin-bottom:6px">
       <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px">
         <input type="checkbox" id="sc-retime" checked>
-        On load, re-date entries so the newest is
+        On load, re-date notes so the newest is
       </label>
       <input id="sc-days" type="number" value="1" min="0" step="0.5" style="width:64px">
       <span style="font-size:12px;color:var(--text-muted)">day(s) ago (relative spacing preserved)</span>
@@ -263,37 +304,31 @@
   </div>
 
   <div class="card">
-    <h2>Add a memory
-      <span class="spacer"></span>
-    </h2>
-    <div class="add-form">
-      <textarea id="add-content" placeholder="What should the bot remember? e.g. &quot;Let's try tactical breathing: in for 4, hold for 4…&quot; (written from the speaker's perspective)"></textarea>
-      <select id="add-kind" title="Who said it — or 'event' for things like mode switches">
-        <option value="user">user</option>
-        <option value="assistant" selected>assistant</option>
-        <option value="event">event</option>
-      </select>
-      <input id="add-mode" list="mode-list" placeholder="mode (e.g. coping_stress)" title="Topic mode the entry belongs to">
-      <input id="add-session" value="manual-demo" title="Session id to file it under — keep the default for staged demo entries">
-      <button class="btn primary" onclick="addEpisode()">+ Add</button>
+    <h2>Add a note</h2>
+    <div class="card-note">
+      Pick a template; every field is a fixed choice from the registry.
+      For resources, give the provider and the numeric id from its library
+      database — the title fills in automatically.
     </div>
+    <div class="slot-row" id="add-form">
+      <div class="slot-field">
+        <label>template</label>
+        <select id="add-template"></select>
+      </div>
+      <span id="add-slots" class="slot-row"></span>
+      <button class="btn primary" onclick="addMemory()" style="align-self:flex-end">+ Add</button>
+    </div>
+    <div class="card-note" id="add-template-desc" style="margin:8px 0 0"></div>
   </div>
 
   <div class="card">
-    <h2>Episodic log
+    <h2>Memory notes
       <span class="spacer"></span>
       <button class="btn" onclick="load(0)">↻ Refresh</button>
     </h2>
     <div class="filters">
-      <input id="f-query" placeholder="Search content…">
-      <select id="f-kind">
-        <option value="">any kind</option>
-        <option value="user">user</option>
-        <option value="assistant">assistant</option>
-        <option value="event">event</option>
-      </select>
-      <select id="f-mode"><option value="">any mode</option></select>
-      <input id="f-chat" placeholder="session id prefix" size="12">
+      <input id="f-query" placeholder="Search notes…">
+      <select id="f-template"><option value="">any template</option></select>
       <button class="btn" onclick="load(0)">Filter</button>
       <button class="btn" onclick="clearFilters()">Clear</button>
     </div>
@@ -306,7 +341,6 @@
   </div>
 </main>
 
-<datalist id="mode-list"></datalist>
 <div id="toast"></div>
 
 <script>
@@ -323,6 +357,8 @@ const LIMIT = 30;
 let offset = 0;
 let total = 0;
 let editingId = null;
+let userId = null;         // selected profile id
+let TEMPLATES = {};        // registry from /api/memory/templates
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -352,29 +388,153 @@ function esc(s) {
     c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function pretty(v) { return String(v ?? '').replace(/_/g, ' '); }
+
+// ------------------------------------------------------- profiles & registry
+
+async function loadProfiles() {
+  const sel = document.getElementById('profile-select');
+  const data = await api('/api/user-profiles');
+  const profiles = data.profiles || [];
+  sel.innerHTML = '';
+  if (!profiles.length) {
+    sel.innerHTML = '<option value="">(no profiles yet)</option>';
+    userId = null;
+    return;
+  }
+  for (const p of profiles) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.name} (${p.memories} notes)`;
+    sel.appendChild(opt);
+  }
+  // Preselect from ?user=N (the chat page links here with it).
+  const wanted = new URLSearchParams(window.location.search).get('user');
+  if (wanted && profiles.some(p => String(p.id) === wanted)) {
+    sel.value = wanted;
+  }
+  userId = parseInt(sel.value, 10) || null;
+}
+
+async function loadTemplates() {
+  const data = await api('/api/memory/templates');
+  TEMPLATES = data.templates || {};
+  const tSel = document.getElementById('add-template');
+  const fSel = document.getElementById('f-template');
+  tSel.innerHTML = '';
+  fSel.innerHTML = '<option value="">any template</option>';
+  for (const key of Object.keys(TEMPLATES)) {
+    tSel.appendChild(new Option(pretty(key), key));
+    fSel.appendChild(new Option(pretty(key), key));
+  }
+  renderSlotInputs('add-slots', tSel.value, {});
+  tSel.addEventListener('change',
+    () => renderSlotInputs('add-slots', tSel.value, {}));
+}
+
+// Build the slot inputs for one template into container `containerId`.
+// Enum slots become selects; a resource ref becomes provider select + id.
+function renderSlotInputs(containerId, template, current) {
+  const wrap = document.getElementById(containerId);
+  wrap.textContent = '';
+  const spec = TEMPLATES[template];
+  const descEl = document.getElementById('add-template-desc');
+  if (containerId === 'add-slots' && descEl) {
+    descEl.textContent = spec ? spec.description +
+      (spec.follow_up ? ' (marked as a follow-up in the snapshot)' : '') : '';
+  }
+  if (!spec) return;
+  const prefix = containerId.replace(/[^a-z0-9-]/gi, '');
+  for (const [name, rule] of Object.entries(spec.slots)) {
+    if (rule.ref === 'resource') {
+      wrap.appendChild(slotField('provider', true, selectEl(
+        `${prefix}-slot-provider`, rule.providers, current.provider, false)));
+      const idInput = document.createElement('input');
+      idInput.id = `${prefix}-slot-resource`;
+      idInput.type = 'number';
+      idInput.min = '1';
+      idInput.style.width = '90px';
+      idInput.placeholder = 'id';
+      if (current.resource != null) idInput.value = current.resource;
+      wrap.appendChild(slotField('resource id', rule.required, idInput));
+      continue;
+    }
+    wrap.appendChild(slotField(name, rule.required, selectEl(
+      `${prefix}-slot-${name}`, rule.enum, current[name], !rule.required)));
+  }
+}
+
+function selectEl(id, values, current, optional) {
+  const sel = document.createElement('select');
+  sel.id = id;
+  if (optional) sel.appendChild(new Option('—', ''));
+  for (const v of values) {
+    const opt = new Option(pretty(v), v);
+    if (v === current) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  return sel;
+}
+
+function slotField(label, required, inputEl) {
+  const field = document.createElement('div');
+  field.className = 'slot-field';
+  const lab = document.createElement('label');
+  lab.textContent = label;
+  if (required) {
+    const req = document.createElement('span');
+    req.className = 'req';
+    req.textContent = ' *';
+    lab.appendChild(req);
+  }
+  field.appendChild(lab);
+  field.appendChild(inputEl);
+  return field;
+}
+
+// Read the slot inputs rendered by renderSlotInputs back into a dict.
+function collectSlots(containerId, template) {
+  const spec = TEMPLATES[template];
+  const prefix = containerId.replace(/[^a-z0-9-]/gi, '');
+  const slots = {};
+  for (const [name, rule] of Object.entries(spec.slots)) {
+    if (rule.ref === 'resource') {
+      const provider = document.getElementById(`${prefix}-slot-provider`).value;
+      const rid = document.getElementById(`${prefix}-slot-resource`).value;
+      if (rid) { slots.provider = provider; slots.resource = parseInt(rid, 10); }
+      continue;
+    }
+    const v = document.getElementById(`${prefix}-slot-${name}`).value;
+    if (v) slots[name] = v;
+  }
+  return slots;
+}
+
 // ----------------------------------------------------------------- loaders
 
 async function loadStats() {
   try {
     const s = await api('/api/memory/stats');
     document.getElementById('stats').textContent =
-      `${s.episodes} entries · ${s.sessions} sessions · last write ${s.last_write ? s.last_write.replace('T', ' ') : '—'}`;
-    const opts = s.modes.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
-    document.getElementById('f-mode').innerHTML = '<option value="">any mode</option>' + opts;
-    document.getElementById('mode-list').innerHTML = opts;
+      `${s.profiles} profile(s) · ${s.memories} note(s) total · last write ` +
+      `${s.last_write ? s.last_write.replace('T', ' ') : '—'}`;
   } catch (e) { /* auth banner already shown */ }
 }
 
 async function loadSnapshot() {
   const el = document.getElementById('snapshot-block');
+  if (!userId) {
+    el.textContent = 'No profile selected — create one on the chat page first.';
+    el.classList.add('empty');
+    return;
+  }
   try {
-    const data = await api('/api/memory/snapshot');
+    const data = await api(`/api/memory/snapshot?user_id=${userId}`);
     if (data.block && data.block.trim()) {
       el.textContent = data.block.trim();
       el.classList.remove('empty');
     } else {
-      el.textContent = 'Empty — no prior sessions yet, so nothing is injected. ' +
-        'This block is prepended to the coach’s system prompt at the start of every multi-agent turn.';
+      el.textContent = 'Empty — this profile has no notes yet, so nothing is injected.';
       el.classList.add('empty');
     }
   } catch (e) { el.textContent = 'Could not load snapshot.'; }
@@ -383,19 +543,20 @@ async function loadSnapshot() {
 async function load(newOffset) {
   if (newOffset !== undefined) offset = newOffset;
   editingId = null;
-  const params = new URLSearchParams({ limit: LIMIT, offset });
+  if (!userId) {
+    document.getElementById('table-wrap').innerHTML =
+      '<div class="empty-note">No profile selected.</div>';
+    return;
+  }
+  const params = new URLSearchParams({ user_id: userId, limit: LIMIT, offset });
   const q = document.getElementById('f-query').value.trim();
-  const kind = document.getElementById('f-kind').value;
-  const mode = document.getElementById('f-mode').value;
-  const chat = document.getElementById('f-chat').value.trim();
+  const template = document.getElementById('f-template').value;
   if (q) params.set('query', q);
-  if (kind) params.set('kind', kind);
-  if (mode) params.set('mode', mode);
-  if (chat) params.set('chat', chat);
+  if (template) params.set('template', template);
   try {
-    const data = await api('/api/memory/episodes?' + params);
+    const data = await api('/api/memory/memories?' + params);
     total = data.total;
-    renderTable(data.episodes);
+    renderTable(data.memories);
   } catch (e) {
     document.getElementById('table-wrap').innerHTML =
       `<div class="empty-note">${esc(e.message)}</div>`;
@@ -403,8 +564,8 @@ async function load(newOffset) {
 }
 
 function clearFilters() {
-  for (const id of ['f-query', 'f-chat']) document.getElementById(id).value = '';
-  for (const id of ['f-kind', 'f-mode']) document.getElementById(id).value = '';
+  document.getElementById('f-query').value = '';
+  document.getElementById('f-template').value = '';
   load(0);
 }
 
@@ -414,27 +575,36 @@ function page(dir) {
   load(next);
 }
 
+function refreshAll() {
+  return Promise.all([load(0), loadSnapshot(), loadStats()]);
+}
+
 // ---------------------------------------------------------------- rendering
 
+let rowsById = {};
+
 function renderTable(rows) {
+  rowsById = {};
   const wrap = document.getElementById('table-wrap');
   if (!rows.length) {
-    wrap.innerHTML = '<div class="empty-note">No memory entries match.</div>';
+    wrap.innerHTML = '<div class="empty-note">No memory notes match.</div>';
   } else {
     wrap.innerHTML = `<table><thead><tr>
-      <th>When</th><th>Session</th><th>Mode</th><th>Kind</th><th>Content</th><th></th>
+      <th>When</th><th>Session</th><th>Template</th><th>Note</th><th></th>
     </tr></thead><tbody>
-    ${rows.map(r => `<tr data-id="${r.id}">
+    ${rows.map(r => {
+      rowsById[r.id] = r;
+      return `<tr data-id="${r.id}">
       <td class="col-when">${esc((r.ts || '').replace('T', ' '))}</td>
-      <td class="col-session" title="${esc(r.chat_id)}">${esc((r.chat_id || '').slice(0, 8))}</td>
-      <td class="col-mode"><span class="mode-tag">${esc(r.mode || '—')}</span></td>
-      <td class="col-kind"><span class="kind-chip kind-${esc(r.kind)}">${esc(r.kind)}</span></td>
-      <td class="col-content">${esc(r.content)}</td>
+      <td class="col-session" title="${esc(r.chat_id || '')}">${esc((r.chat_id || '').slice(0, 8))}</td>
+      <td><span class="template-chip">${esc(pretty(r.template))}</span>
+        ${r.follow_up ? '<br><span class="followup-chip">follow-up</span>' : ''}</td>
+      <td class="col-content">${esc(r.rendered)}</td>
       <td class="col-actions">
-        <button class="btn" onclick='startEdit(${r.id}, ${JSON.stringify(r.content)}, ${JSON.stringify(r.mode || '')}, ${JSON.stringify(r.kind)})'>Edit</button>
-        <button class="btn danger" onclick="removeEpisode(${r.id})">Delete</button>
+        <button class="btn" onclick="startEdit(${r.id})">Edit</button>
+        <button class="btn danger" onclick="removeMemory(${r.id})">Delete</button>
       </td>
-    </tr>`).join('')}</tbody></table>`;
+    </tr>`; }).join('')}</tbody></table>`;
   }
   const start = total ? offset + 1 : 0;
   const end = Math.min(offset + LIMIT, total);
@@ -445,60 +615,52 @@ function renderTable(rows) {
 
 // ------------------------------------------------------------------ editing
 
-function startEdit(id, content, mode, kind) {
+function startEdit(id) {
   if (editingId !== null) load();  // collapse any other open editor
   editingId = id;
+  const r = rowsById[id];
   const row = document.querySelector(`tr[data-id="${id}"]`);
   const cell = row.querySelector('.col-content');
   cell.innerHTML = `
-    <textarea class="edit-content" id="edit-content-${id}"></textarea>
+    <span class="slot-row" id="edit-slots-${id}"></span>
     <div class="edit-row-controls">
-      <select id="edit-kind-${id}">
-        ${['user', 'assistant', 'event'].map(k =>
-          `<option value="${k}"${k === kind ? ' selected' : ''}>${k}</option>`).join('')}
-      </select>
-      <input id="edit-mode-${id}" list="mode-list" placeholder="mode" value="${esc(mode)}" size="18">
       <button class="btn primary" onclick="saveEdit(${id})">Save</button>
       <button class="btn" onclick="load()">Cancel</button>
     </div>`;
-  document.getElementById(`edit-content-${id}`).value = content;
+  renderSlotInputs(`edit-slots-${id}`, r.template, r.slots || {});
   row.querySelector('.col-actions').innerHTML = '';
 }
 
 async function saveEdit(id) {
+  const r = rowsById[id];
   try {
-    await api('/api/memory/episodes/' + id, { method: 'PUT', body: {
-      content: document.getElementById(`edit-content-${id}`).value,
-      kind: document.getElementById(`edit-kind-${id}`).value,
-      mode: document.getElementById(`edit-mode-${id}`).value.trim(),
-    }});
+    const slots = collectSlots(`edit-slots-${id}`, r.template);
+    await api('/api/memory/memories/' + id, { method: 'PUT', body: { slots } });
     toast('Saved');
-    await Promise.all([load(), loadSnapshot(), loadStats()]);
+    await refreshAll();
   } catch (e) { toast('Save failed: ' + e.message); }
 }
 
-async function removeEpisode(id) {
-  if (!confirm('Delete this memory entry? The bot will no longer be able to recall it.')) return;
+async function removeMemory(id) {
+  if (!confirm('Delete this note? The bot will no longer be able to recall it.')) return;
   try {
-    await api('/api/memory/episodes/' + id, { method: 'DELETE' });
+    await api('/api/memory/memories/' + id, { method: 'DELETE' });
     toast('Deleted');
-    await Promise.all([load(), loadSnapshot(), loadStats()]);
+    await refreshAll();
   } catch (e) { toast('Delete failed: ' + e.message); }
 }
 
-async function addEpisode() {
-  const content = document.getElementById('add-content').value.trim();
-  if (!content) { toast('Content is required'); return; }
+async function addMemory() {
+  if (!userId) { toast('No profile selected'); return; }
+  const template = document.getElementById('add-template').value;
   try {
-    await api('/api/memory/episodes', { method: 'POST', body: {
-      content,
-      kind: document.getElementById('add-kind').value,
-      mode: document.getElementById('add-mode').value.trim(),
-      chat_id: document.getElementById('add-session').value.trim() || 'manual',
+    const slots = collectSlots('add-slots', template);
+    await api('/api/memory/memories', { method: 'POST', body: {
+      user_id: userId, template, slots,
     }});
-    document.getElementById('add-content').value = '';
     toast('Added');
-    await Promise.all([load(0), loadSnapshot(), loadStats()]);
+    renderSlotInputs('add-slots', template, {});
+    await refreshAll();
   } catch (e) { toast('Add failed: ' + e.message); }
 }
 
@@ -509,19 +671,19 @@ async function loadScenarios() {
   try {
     const data = await api('/api/memory/scenarios');
     if (!data.scenarios.length) {
-      el.innerHTML = '<div class="empty-note">No saved scenarios yet. Stage the memory log above, then save it here.</div>';
+      el.innerHTML = '<div class="empty-note">No saved scenarios yet. Stage a profile\'s notes above, then save them here.</div>';
       return;
     }
     el.innerHTML = `<table><thead><tr>
-      <th>Name</th><th>Description</th><th>Entries</th><th>Saved</th><th></th>
+      <th>Name</th><th>Description</th><th>Notes</th><th>Saved</th><th></th>
     </tr></thead><tbody>
     ${data.scenarios.map(s => `<tr>
       <td><strong>${esc(s.name)}</strong></td>
       <td style="color:var(--text-muted)">${esc(s.description) || '—'}</td>
-      <td>${s.episodes}</td>
+      <td>${s.memories}</td>
       <td class="col-when">${esc((s.saved_at || '').replace('T', ' '))}</td>
       <td class="col-actions">
-        <button class="btn" onclick='loadScenario(${JSON.stringify(s.slug)}, ${JSON.stringify(s.name)})'>▶ Load</button>
+        <button class="btn" onclick='loadScenario(${JSON.stringify(s.slug)}, ${JSON.stringify(s.name)})'>▶ Load into profile</button>
         <button class="btn danger" onclick='deleteScenario(${JSON.stringify(s.slug)}, ${JSON.stringify(s.name)})'>Delete</button>
       </td>
     </tr>`).join('')}</tbody></table>`;
@@ -531,11 +693,13 @@ async function loadScenarios() {
 }
 
 async function saveScenario() {
+  if (!userId) { toast('No profile selected'); return; }
   const name = document.getElementById('sc-name').value.trim();
   if (!name) { toast('Scenario name is required'); return; }
   try {
     await api('/api/memory/scenarios', { method: 'POST', body: {
-      name, description: document.getElementById('sc-desc').value.trim(),
+      user_id: userId, name,
+      description: document.getElementById('sc-desc').value.trim(),
     }});
     document.getElementById('sc-name').value = '';
     document.getElementById('sc-desc').value = '';
@@ -545,20 +709,23 @@ async function saveScenario() {
 }
 
 async function loadScenario(slug, name) {
-  if (!confirm(`Load scenario "${name}"?\n\nThis REPLACES the entire current memory log. Save the current state as a scenario first if you want to keep it.`)) return;
-  const body = {};
+  if (!userId) { toast('No profile selected'); return; }
+  const profileName = document.getElementById('profile-select')
+    .selectedOptions[0]?.textContent || 'the selected profile';
+  if (!confirm(`Load scenario "${name}" into ${profileName}?\n\nThis REPLACES that profile's current notes. Save them as a scenario first if you want to keep them.`)) return;
+  const body = { user_id: userId };
   if (document.getElementById('sc-retime').checked) {
     body.retime_newest_days_ago = parseFloat(document.getElementById('sc-days').value) || 0;
   }
   try {
     const data = await api(`/api/memory/scenarios/${slug}/load`, { method: 'POST', body });
-    toast(`Loaded "${data.name}" (${data.loaded} entries)`);
-    await Promise.all([load(0), loadSnapshot(), loadStats()]);
+    toast(`Loaded "${data.name}" (${data.loaded} notes)`);
+    await refreshAll();
   } catch (e) { toast('Load failed: ' + e.message); }
 }
 
 async function deleteScenario(slug, name) {
-  if (!confirm(`Delete scenario "${name}"? The saved file is removed; current memory is untouched.`)) return;
+  if (!confirm(`Delete scenario "${name}"? The saved file is removed; profile memory is untouched.`)) return;
   try {
     await api('/api/memory/scenarios/' + slug, { method: 'DELETE' });
     toast('Scenario deleted');
@@ -566,14 +733,30 @@ async function deleteScenario(slug, name) {
   } catch (e) { toast('Delete failed: ' + e.message); }
 }
 
+// ------------------------------------------------------------------- wiring
+
 document.getElementById('f-query').addEventListener('keydown', e => {
   if (e.key === 'Enter') load(0);
 });
 
-loadStats();
-loadSnapshot();
-load(0);
-loadScenarios();
+document.getElementById('profile-select').addEventListener('change', (e) => {
+  userId = parseInt(e.target.value, 10) || null;
+  const url = new URL(window.location);
+  if (userId) url.searchParams.set('user', userId);
+  else url.searchParams.delete('user');
+  history.replaceState(null, '', url);
+  refreshAll();
+});
+
+(async function init() {
+  try {
+    await Promise.all([loadProfiles(), loadTemplates()]);
+  } catch (e) { /* auth banner shown by api() */ }
+  loadStats();
+  loadSnapshot();
+  load(0);
+  loadScenarios();
+})();
 </script>
 </body>
 </html>

@@ -36,6 +36,12 @@ _SUMMARIZER_TOOLS: list[str] = [
     "return_summary",
 ]
 
+# The memory agent's whole tool surface is its structured output contract:
+# it can only speak in memory templates, which is the privacy guarantee.
+_MEMORY_AGENT_TOOLS: list[str] = [
+    "record_memories",
+]
+
 TOOLSETS: dict[str, list[str]] = {
     "default": [
         "send_message",
@@ -47,4 +53,5 @@ TOOLSETS: dict[str, list[str]] = {
     # Multi-agent: coach (orchestrator) and summarizer (read-only sub-agent).
     "coach": _COACH_TOOLS,
     "summarizer": _SUMMARIZER_TOOLS,
+    "memory_agent": _MEMORY_AGENT_TOOLS,
 }

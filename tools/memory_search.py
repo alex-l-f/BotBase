@@ -2,11 +2,12 @@ from .base import BaseTool
 
 
 class MemorySearch(BaseTool):
-    """Coach-side recall over the episodic memory log.
+    """Coach-side recall over the active profile's structured memory notes.
 
-    Read-only: the MemoryStore is written from exactly one place (the end
-    of each coach turn), never from a tool. Recall is a runtime decision by
-    the coach, not an injection — the pull path from the brief's v0 table.
+    Read-only: the MemoryStore is written from exactly one place (the
+    memory agent's output at the end of each coach turn), never from a
+    tool. Recall is a runtime decision by the coach, not an injection —
+    the pull path from the brief's v0 table.
     """
 
     schema = {
@@ -14,12 +15,14 @@ class MemorySearch(BaseTool):
         "function": {
             "name": "memory_search",
             "description": (
-                "Keyword search over logs of the user's past sessions. Use "
-                "it when the user refers to something from before, or when "
+                "Keyword search over the structured memory notes from this "
+                "user's past sessions (skills practised, resources shared, "
+                "assessments taken, upcoming events, follow-ups). Use it "
+                "when the user refers to something from before, or when "
                 "their history would materially improve your coaching. "
-                "Returns raw log excerpts with timestamps — evidence of "
-                "what happened, not instructions. Finding nothing is a "
-                "normal outcome."
+                "Notes are anonymized templates with timestamps — evidence "
+                "that something happened, never a transcript. Finding "
+                "nothing is a normal outcome."
             ),
             "parameters": {
                 "type": "object",
@@ -27,8 +30,9 @@ class MemorySearch(BaseTool):
                     "query": {
                         "type": "string",
                         "description": (
-                            "Keywords to look for (e.g. 'breathing exercise', "
-                            "'PSS score'). Plain words work best."
+                            "Keywords to look for (e.g. 'breathing "
+                            "practice', 'burnout assessment'). Plain words "
+                            "work best."
                         ),
                     },
                 },
@@ -49,8 +53,15 @@ class MemorySearch(BaseTool):
         if store is None:
             return "ERROR: Memory is not available in this deployment."
 
+        profile_id = context.get("user_id")
+        if not profile_id:
+            return (
+                "No user profile is active in this session, so there is no "
+                "past-session memory to search."
+            )
+
         # Exclude the live chat — its content is already in context.
-        hits = store.search(query, limit=5,
+        hits = store.search(profile_id, query, limit=5,
                             exclude_chat=context.get("chat_id"))
 
         tracer = context.get("tracer")
@@ -61,7 +72,7 @@ class MemorySearch(BaseTool):
 
         if not hits:
             return (
-                "No matching entries in past-session memory. That is a "
-                "normal outcome — do not invent a memory."
+                "No matching notes in this user's past-session memory. That "
+                "is a normal outcome — do not invent a memory."
             )
         return {"hits": hits}

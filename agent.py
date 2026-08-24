@@ -12,6 +12,7 @@ from prompts import get_prompt, get_toolset
 from prompts.topics import TOPICS
 from embedding_client import EmbeddingSearchClient
 from memory import MemoryStore
+from memory_agent import run_memory_agent
 from trace import AgentTracer, clip
 
 
@@ -83,10 +84,11 @@ def clean_tool_calls(text: str) -> str:
 message_queues = {}
 chat_status = {}
 
-# Episodic memory + instrumentation store. Single-writer: record_turn() is
-# called from exactly one place (end of get_LM_response); everything else
-# only reads. Turns are logged in BOTH architectures so the single-agent
-# baseline builds the same eval corpus.
+# Profile-scoped template memory + instrumentation store. Single-writer:
+# add_memories() is called from exactly one place (the memory agent's
+# output at the end of get_LM_response); everything else only reads.
+# Memory runs only in the multi architecture with an active user profile —
+# the single-agent baseline stays a memory-free comparison target.
 memory_store = MemoryStore()
 
 # Configure logging
@@ -151,7 +153,7 @@ def start_conversation(system_prompt: str = None, profile: str = None, arch: str
     return conversation
 
 
-def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str = None, system_prompt: str = None, toolset=None, profile: str = None, arch: str = "single"):
+def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str = None, system_prompt: str = None, toolset=None, profile: str = None, arch: str = "single", user_id: int | None = None):
     llm_interface = LLMInterface("") #stick to defualt for now until integrated into the frontend
     conversation = start_conversation(system_prompt, profile, arch)
     if toolset is None:
@@ -177,11 +179,12 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
     tracer = AgentTracer(chat_id, message_queues, memory_store)
 
     # The one always-injected memory tier: a small, hard-capped snapshot of
-    # prior sessions. Multi-agent only — the single-agent baseline stays a
-    # pure comparison target.
+    # the active profile's structured memory notes. Multi-agent only — the
+    # single-agent baseline stays a pure comparison target.
     profile_block = ""
-    if arch == "multi":
-        profile_block = memory_store.profile_block(exclude_chat=chat_id)
+    if arch == "multi" and user_id:
+        profile_block = memory_store.profile_block(user_id,
+                                                   exclude_chat=chat_id)
         if profile_block and conversation.history and \
                 conversation.history[0].get("role") == "system":
             conversation.history[0]["content"] += profile_block
@@ -207,6 +210,7 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
         "arch": arch,
         "tracer": tracer,
         "memory_store": memory_store,
+        "user_id": user_id,
         "profile_block": profile_block,
         "llm_interface_cls": LLMInterface,
         "conversation_cls": Conversation,
@@ -274,21 +278,29 @@ def get_LM_response(conversation_dict: Dict[str, str], chat_id: str, model: str 
             if msg not in conversation_dict:
                 new_messages.append(msg)
 
-    # Episodic memory write — the single writer's only call site. Mode is
-    # read after the loop so a mid-turn switch_mode is recorded correctly.
-    final_mode = (chat_status.get(chat_id) or {}).get("mode") or profile
-    turn_messages = []
-    if last_user_message:
-        turn_messages.append({"role": "user", "content": last_user_message})
-    turn_messages.extend(new_messages)
-    try:
-        rows_written = memory_store.record_turn(chat_id, final_mode, turn_messages)
-        tracer.emit("memory", "write", {
-            "rows": rows_written,
-            "mode": final_mode,
-        })
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Memory write failed: %s", exc)
+    # Memory extraction — the single writer's only call site. The memory
+    # agent turns this turn's conversational surface into anonymous
+    # template records (structured generation via record_memories); only
+    # what fits the template registry can be stored. Runs only in the
+    # multi architecture with an active user profile.
+    if arch == "multi" and user_id:
+        turn_messages = []
+        if last_user_message:
+            turn_messages.append({"role": "user", "content": last_user_message})
+        turn_messages.extend(new_messages)
+        try:
+            prior_notes = memory_store.list_memories(
+                user_id, limit=20)["memories"]
+            records = run_memory_agent(turn_messages, context, prior_notes)
+            stored = memory_store.add_memories(user_id, chat_id, records) \
+                if records else []
+            tracer.emit("memory", "write", {
+                "rows": len(stored),
+                "profile": user_id,
+            }, persist={"stored": stored})
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Memory extraction failed: %s", exc)
 
     tracer.emit("coach", "turn_done", {})
 

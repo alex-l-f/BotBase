@@ -4,7 +4,7 @@ A modular, expandable chatbot framework built around an LLM agent loop with a pl
 
 Ships with two selectable agent architectures (see [Multi-Agent Architecture](#multi-agent-architecture)):
 
-- **`multi`** (default) — a supervisor-topology system: a user-facing **coach** that delegates library research to a read-only **summarizer** sub-agent and recalls past sessions from an episodic **memory** store.
+- **`multi`** (default) — a supervisor-topology system: a user-facing **coach** that delegates library research to a read-only **summarizer** sub-agent and recalls past sessions from a profile-scoped, privacy-preserving **template memory** store written by a **memory agent**.
 - **`single`** — the original one-agent librarian, kept as the benchmark baseline.
 
 ## Project Structure
@@ -13,7 +13,12 @@ Ships with two selectable agent architectures (see [Multi-Agent Architecture](#m
 agent.py              Core agent loop — runs the coach LLM, dispatches tool calls
 summarizer_agent.py   Summarizer sub-agent — read-only research loop with a
                       structured output contract (multi arch only)
-memory.py             Episodic memory store — SQLite + FTS5, single-writer
+memory.py             Profile-scoped template memory store — SQLite + FTS5,
+                      single-writer
+memory_templates.py   Template registry — the fixed vocabulary of what memory
+                      is allowed to store (the privacy contract)
+memory_agent.py       Memory extraction sub-agent — turns each finished turn
+                      into template records via structured generation
 trace.py              Per-agent instrumentation — streams events to the debug UI
                       and persists them to the trace log
 server.py             Flask API server — exposes chat endpoints
@@ -27,6 +32,7 @@ prompts/              Prompt system (profile-based)
   profiles.py         Maps profile names to prompt modules + toolsets
   default.py          Default system prompt (customize this)
   summarizer.py       System prompt for the summarizer sub-agent
+  memory_agent.py     System prompt for the memory extraction sub-agent
   coach_overlay.py    Multi-agent overlay appended to topic prompts
 
 tools/                Tool plugin system
@@ -40,8 +46,10 @@ tools/                Tool plugin system
   open_course_page.py Opens an e-learning course page in the viewer panel
   switch_mode.py      Switches the active topic mode + resource library
   ask_library.py      Coach → summarizer delegation (multi arch)
-  memory_search.py    Coach-side recall over past-session logs (multi arch)
+  memory_search.py    Coach-side recall over the profile's memory notes (multi arch)
   return_summary.py   Summarizer's structured output contract (multi arch)
+  record_memories.py  Memory agent's structured output contract — only admits
+                      registered templates (multi arch)
 
 LMInterface/          LLM backend adapters
   lcpp_interface.py   llama.cpp (via OpenAI-compatible API)
@@ -82,18 +90,21 @@ LMInterface/          LLM backend adapters
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/start-chat` | Create a new chat session |
-| POST | `/api/chat-profile` | Chat using a named profile |
+| POST | `/api/chat-profile` | Chat using a named profile (accepts `user_id` for memory scope) |
 | POST | `/api/prompt-chat` | Chat with a custom system prompt |
 | GET  | `/api/get-messages/<chat_id>` | Poll for new messages |
-| GET  | `/api/profiles` | List available profiles |
+| GET  | `/api/profiles` | List available prompt profiles |
+| GET/POST | `/api/user-profiles` | List / create user profiles (memory scope) |
+| DELETE | `/api/user-profiles/<id>` | Delete a user profile and all its memory notes |
 | POST | `/api/log-event` | Log a custom event |
-| GET  | `/memory` | Memory browser/editor page |
-| GET  | `/api/memory/stats` | Episode/session counts and known modes |
-| GET  | `/api/memory/snapshot` | The MEMORY SNAPSHOT block as it would be injected now |
-| GET/POST | `/api/memory/episodes` | Browse (filter/paginate) or add memory entries |
-| PUT/DELETE | `/api/memory/episodes/<id>` | Edit or delete one memory entry |
-| GET/POST | `/api/memory/scenarios` | List scenarios / save current memory as one |
-| POST | `/api/memory/scenarios/<slug>/load` | Replace memory with a scenario (optional re-dating) |
+| GET  | `/memory` | Memory browser/editor page (`?user=<id>` preselects a profile) |
+| GET  | `/api/memory/stats` | Profile and note counts |
+| GET  | `/api/memory/templates` | The memory template registry (slots + enums) |
+| GET  | `/api/memory/snapshot?user_id=` | The MEMORY SNAPSHOT block as it would be injected now |
+| GET/POST | `/api/memory/memories?user_id=` | Browse (filter/paginate) or add template notes |
+| PUT/DELETE | `/api/memory/memories/<id>` | Edit slot values / delete one note |
+| GET/POST | `/api/memory/scenarios` | List scenarios / save a profile's notes as one |
+| POST | `/api/memory/scenarios/<slug>/load` | Replace a profile's notes with a scenario (optional re-dating) |
 | DELETE | `/api/memory/scenarios/<slug>` | Delete a saved scenario file |
 
 ## Adding Tools
@@ -205,20 +216,23 @@ The design follows the prototype path in `multi-agent-paradigms-2026.md` §6: a 
 
 **Summarizer (read-only explorer).** A second instance of the same loop machinery with its own context window and a read-only toolset (`search_resources`, `examine_resource`). It must finish by calling `return_summary`, which enforces a fixed output contract — `answer`, `key_points`, `resources` (ids validated against what the run actually retrieved), `confidence`, `notes` — stamped with `source` + `timestamp`. Retrieved resources are merged back into the coach's context so the cited ids resolve in `provide_file` / `open_course_page`. Effort is capped (8 tool calls) with scaling rules in the prompt. Set `SUMMARIZER_MODEL` in `.env` to run it on a cheaper model.
 
-**Memory (not an agent).** A single-writer SQLite + FTS5 store (`memory.db`):
+**User profiles.** The demo opens with a profile picker: select an existing profile or create a new one. All memory — injection, search, and writes — is scoped to the active profile (`user_id` travels with every chat request and is sticky per chat session server-side). No profile → no memory, so the single-agent baseline and simulator runs stay memory-free.
 
-- *Write path* — plain episodic logging of each completed turn, from exactly one call site in `agent.py`. No LLM, no extraction.
-- *Read path* — the `memory_search` tool (pull, on the coach's initiative).
-- *Always-injected* — one hard-capped (~300 token) MEMORY SNAPSHOT block derived with plain SQL: prior session count, topics visited, recent asks.
-- *Instrumentation* — every tool call and agent event is persisted to `trace_log` (the future push-channel spec and eval corpus, per the brief).
-- *Browser/editor* — `/memory` (also via the 🧠 Memory button in debug mode) shows the live injected snapshot and the episodic log with search, filters, inline editing, deletion, and an add form — useful for staging demo state and for showing an audience exactly what the bot remembers. Edits go through `MemoryStore`'s admin methods, preserving the single-writer rule. Note the store is global: all sessions (including simulator runs) share one memory pool.
-- *Scenarios* — the browser's Scenarios card snapshots the whole episodic log under a name and reloads it later (destructive replace, confirm-guarded), so a staged demo ("user returns the day after a session") is repeatable. On load, timestamps can be re-dated so the newest entry is always N days ago, preserving relative spacing — the "day after" framing survives no matter when the demo runs. Scenarios are plain JSON files under `scenarios/`; sync or hand-edit them freely. After loading one, hit Reset in the chat UI so the new state applies to a fresh session.
+**Memory (template store + memory agent).** Privacy-first by construction: the store cannot hold free text. A memory is a template key from `memory_templates.py` plus validated slot values, where every slot is an enum from a fixed vocabulary (skills, assessments, stressor areas, event types, timeframes, …) or a reference to a library resource. Nothing the user literally said is ever persisted.
+
+- *Write path* — after each completed coach turn, the **memory agent** (a third sub-agent, `memory_agent.py`) reads the turn's conversational surface plus the profile's existing notes and must answer through the `record_memories` tool, whose schema only admits registered templates (structured generation). Rejected entries bounce back with the reason so the model can retry; an empty list is a normal outcome. `MemoryStore.add_memories` re-validates and remains the single writer. Set `MEMORY_MODEL` in `.env` to run it on a cheaper model.
+- *Templates* — grounded in the tool's three primary uses: **stress/coping** (`stress_reported`, `skill_introduced`, `skill_practiced`, `practice_commitment`, `assessment_result`), **task performance** (`upcoming_event`, `event_outcome`, `goal_set`), **distress** (`distress_supported` — records that distress was recognized and what support was given, never the details), plus continuity glue (`topic_discussed`, `resource_shared`, `preference_noted`). Some templates are flagged as follow-ups and surface first in the snapshot so the coach picks them up next session.
+- *Read path* — the `memory_search` tool (pull, on the coach's initiative) over the profile's rendered notes.
+- *Always-injected* — one hard-capped MEMORY SNAPSHOT block per turn: session count, open follow-ups, recent notes, all rendered deterministically from the stored templates.
+- *Instrumentation* — every tool call and agent event is persisted to `trace_log` (the future push-channel spec and eval corpus, per the brief). Note: `trace_log`, `logs/`, and `logs.db` still capture raw traffic for debugging the demo — they are separate from the memory system and should be disabled for a real deployment.
+- *Browser/editor* — `/memory` (also via the 🧠 Memory button in debug mode) is profile-aware: pick a profile, see its live injected snapshot and notes, and add/edit/delete notes through template-driven forms (every field is a dropdown from the registry — the browser can't store free text either). Useful for staging demo state and for showing an audience exactly what the bot can and cannot remember.
+- *Scenarios* — the browser's Scenarios card snapshots one profile's notes under a name and loads them into any profile later (destructive replace, confirm-guarded), so a staged demo ("user returns the day after a session") is repeatable. On load, timestamps can be re-dated so the newest note is always N days ago, preserving relative spacing. Scenarios are plain JSON files under `scenarios/` holding template records only; sync or hand-edit them freely.
 
 **Selecting the architecture.** Server default via `--arch multi|single` or `BOTBASE_ARCH`; the frontend's debug mode has a per-request selector, so you can run the brief's §6 comparison — same question, same budget, single vs. multi — from the UI.
 
 **Debug sub-panes.** The Debug toggle now also reveals a bottom panel with one live sub-pane per agent — **Coach**, **Summarizer**, **Memory** — streaming each agent's model output, tool calls/results, spawns, structured summaries, and memory reads/writes as they happen.
 
-Deliberately deferred (per the brief): proactive push channels, extraction/conflict detection on memory writes, semantic/procedural memory tiers, a verification agent, and vector indexing of the logs.
+Deliberately deferred (per the brief): proactive push channels, conflict detection / follow-up resolution on memory writes (notes are append-only for now), semantic/procedural memory tiers, a verification agent, and vector indexing of the notes.
 
 ## Customization
 

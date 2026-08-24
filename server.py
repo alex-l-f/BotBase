@@ -15,6 +15,7 @@ from agent import (
 )
 from prompts import list_profiles, ARCHITECTURES
 from prompts.topics import TOPICS, ROUTER_MODE
+from memory_templates import registry_for_api
 import argparse
 import base64
 import hashlib
@@ -202,6 +203,19 @@ def chat_profile():
 
     # Resolve effective profile for this turn.
     status = chat_status.setdefault(chat_id, {"is_complete": False})
+
+    # Resolve the active user profile (memory scope). Seeded on the first
+    # request that names one and sticky for the rest of the chat, so a
+    # client glitch can't silently switch whose memories a session writes.
+    if status.get("user_id") is None:
+        try:
+            requested_user = int(data.get('user_id'))
+        except (TypeError, ValueError):
+            requested_user = None
+        if requested_user and memory_store.get_profile(requested_user):
+            status["user_id"] = requested_user
+    user_id = status.get("user_id")
+
     stored_mode = status.get("mode")
     if stored_mode in TOPICS:
         effective_profile = stored_mode
@@ -228,7 +242,7 @@ def chat_profile():
         threading.Thread(
             target=_run_turn_async,
             args=(chat_id, data.get('fullContext', []), model,
-                  effective_profile, arch),
+                  effective_profile, arch, user_id),
             daemon=True,
         ).start()
         return jsonify({
@@ -236,11 +250,12 @@ def chat_profile():
             "accepted": True,
             "profile": effective_profile,
             "arch": arch,
+            "user_id": user_id,
         }), 202
 
     response_text, full_text, full_context = get_LM_response(
         data.get('fullContext', []), chat_id, model, profile=effective_profile,
-        arch=arch
+        arch=arch, user_id=user_id
     )
 
     logger.log_event(chat_id, "send_response")
@@ -250,18 +265,20 @@ def chat_profile():
         "profile": effective_profile,
         "mode": status.get("mode"),
         "arch": arch,
+        "user_id": user_id,
         "message": {"content": response_text},
         "messages": {"content": full_text, "full_context": full_context}
     })
 
 
-def _run_turn_async(chat_id, full_context_in, model, profile, arch):
+def _run_turn_async(chat_id, full_context_in, model, profile, arch, user_id):
     """Body of an async chat turn. Stashes the same payload the sync path
     returns into chat_status[chat_id]['last_result'] for /api/turn-result."""
     status = chat_status.setdefault(chat_id, {"is_complete": False})
     try:
         response_text, full_text, full_context = get_LM_response(
-            full_context_in, chat_id, model, profile=profile, arch=arch
+            full_context_in, chat_id, model, profile=profile, arch=arch,
+            user_id=user_id
         )
         # Mode is read after the turn so a mid-turn switch_mode is reflected.
         status["last_result"] = {
@@ -465,10 +482,50 @@ def serve_scorm(package, filename):
     return send_from_directory(pkg_dir, filename)
 
 
+# ------------------------------------------------------------ user profiles
+# The demo starts by selecting or creating a profile; memories are scoped
+# to it. Distinct from prompt profiles (/api/profiles).
+
+@app.route('/api/user-profiles', methods=['GET'])
+def user_profiles_list():
+    return jsonify({"profiles": memory_store.list_profiles()})
+
+
+@app.route('/api/user-profiles', methods=['POST'])
+def user_profiles_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        profile = memory_store.create_profile(data.get('name') or '')
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(profile)
+
+
+@app.route('/api/user-profiles/<int:profile_id>', methods=['DELETE'])
+def user_profiles_delete(profile_id):
+    if not memory_store.delete_profile(profile_id):
+        return jsonify({"error": "Profile not found"}), 404
+    return jsonify({"success": True})
+
+
 # ------------------------------------------------------------ memory browser
-# Read/edit surface over the episodic memory store, for demos ("show what
+# Read/edit surface over the template memory store, for demos ("show what
 # the bot remembers") and for staging demo state. All writes go through
-# MemoryStore's admin methods so it stays the single writer.
+# MemoryStore's admin methods so it stays the single writer, and every
+# write is template-validated — the browser can't store free text either.
+
+def _require_profile():
+    """Resolve the user_id query/body param to an existing profile id."""
+    data = request.get_json(silent=True) if request.method != 'GET' else None
+    raw = (data or {}).get('user_id') or request.args.get('user_id')
+    try:
+        profile_id = int(raw)
+    except (TypeError, ValueError):
+        return None, (jsonify({"error": "user_id is required"}), 400)
+    if memory_store.get_profile(profile_id) is None:
+        return None, (jsonify({"error": f"Unknown profile {profile_id}"}), 404)
+    return profile_id, None
+
 
 @app.route('/memory')
 def serve_memory_browser():
@@ -480,74 +537,88 @@ def memory_stats():
     return jsonify(memory_store.stats())
 
 
+@app.route('/api/memory/templates', methods=['GET'])
+def memory_templates():
+    """The template registry (drives the browser's add/edit form)."""
+    return jsonify({"templates": registry_for_api()})
+
+
 @app.route('/api/memory/snapshot', methods=['GET'])
 def memory_snapshot():
     """The MEMORY SNAPSHOT block exactly as it would be injected into the
-    coach's system prompt right now (optionally excluding one chat)."""
+    coach's system prompt right now for the given profile."""
+    profile_id, err = _require_profile()
+    if err:
+        return err
     block = memory_store.profile_block(
-        exclude_chat=request.args.get('exclude_chat'))
+        profile_id, exclude_chat=request.args.get('exclude_chat'))
     return jsonify({"block": block})
 
 
-@app.route('/api/memory/episodes', methods=['GET'])
-def memory_episodes_list():
+@app.route('/api/memory/memories', methods=['GET'])
+def memory_list():
+    profile_id, err = _require_profile()
+    if err:
+        return err
     try:
         limit = max(1, min(200, int(request.args.get('limit', 30))))
         offset = max(0, int(request.args.get('offset', 0)))
     except ValueError:
         return jsonify({"error": "limit/offset must be integers"}), 400
-    result = memory_store.list_episodes(
+    result = memory_store.list_memories(
+        profile_id,
         query=request.args.get('query'),
-        mode=request.args.get('mode'),
-        kind=request.args.get('kind'),
-        chat=request.args.get('chat'),
+        template=request.args.get('template'),
         limit=limit, offset=offset,
     )
     return jsonify(result)
 
 
-@app.route('/api/memory/episodes', methods=['POST'])
-def memory_episodes_create():
+@app.route('/api/memory/memories', methods=['POST'])
+def memory_create():
+    profile_id, err = _require_profile()
+    if err:
+        return err
     data = request.get_json(silent=True) or {}
     try:
-        eid = memory_store.add_episode(
+        created = memory_store.add_memory(
+            profile_id,
+            template=(data.get('template') or '').strip(),
+            slots=data.get('slots') or {},
             chat_id=(data.get('chat_id') or 'manual').strip(),
-            mode=(data.get('mode') or '').strip() or None,
-            kind=(data.get('kind') or '').strip(),
-            content=data.get('content') or '',
+            ts=data.get('ts'),
         )
-        return jsonify({"id": eid})
+        return jsonify(created)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
 
-@app.route('/api/memory/episodes/<int:episode_id>', methods=['PUT'])
-def memory_episodes_update(episode_id):
+@app.route('/api/memory/memories/<int:memory_id>', methods=['PUT'])
+def memory_update(memory_id):
     data = request.get_json(silent=True) or {}
     try:
-        ok = memory_store.update_episode(
-            episode_id,
-            content=data.get('content'),
-            mode=(data['mode'].strip() or None) if 'mode' in data else None,
-            kind=data.get('kind'),
+        ok = memory_store.update_memory(
+            memory_id,
+            slots=data.get('slots'),
+            ts=data.get('ts'),
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     if not ok:
-        return jsonify({"error": "Episode not found"}), 404
+        return jsonify({"error": "Memory not found"}), 404
     return jsonify({"success": True})
 
 
-@app.route('/api/memory/episodes/<int:episode_id>', methods=['DELETE'])
-def memory_episodes_delete(episode_id):
-    if not memory_store.delete_episode(episode_id):
-        return jsonify({"error": "Episode not found"}), 404
+@app.route('/api/memory/memories/<int:memory_id>', methods=['DELETE'])
+def memory_delete(memory_id):
+    if not memory_store.delete_memory(memory_id):
+        return jsonify({"error": "Memory not found"}), 404
     return jsonify({"success": True})
 
 
-# Scenario snapshots: save the current episodic log under a name, reload it
-# later (optionally re-dated) to replay the same demo state. Stored as JSON
-# files under scenarios/ — see scenarios.py.
+# Scenario snapshots: save one profile's memories under a name, load them
+# into a profile later (optionally re-dated) to replay the same demo
+# state. Stored as JSON files under scenarios/ — see scenarios.py.
 
 @app.route('/api/memory/scenarios', methods=['GET'])
 def memory_scenarios_list():
@@ -556,12 +627,15 @@ def memory_scenarios_list():
 
 @app.route('/api/memory/scenarios', methods=['POST'])
 def memory_scenarios_save():
+    profile_id, err = _require_profile()
+    if err:
+        return err
     data = request.get_json(silent=True) or {}
     try:
         slug = scenarios.save_scenario(
             data.get('name') or '',
             data.get('description') or '',
-            memory_store.export_episodes(),
+            memory_store.export_memories(profile_id),
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -570,6 +644,9 @@ def memory_scenarios_save():
 
 @app.route('/api/memory/scenarios/<slug>/load', methods=['POST'])
 def memory_scenarios_load(slug):
+    profile_id, err = _require_profile()
+    if err:
+        return err
     try:
         scenario = scenarios.get_scenario(slug)
     except ValueError as exc:
@@ -578,15 +655,15 @@ def memory_scenarios_load(slug):
         return jsonify({"error": "Scenario not found"}), 404
 
     data = request.get_json(silent=True) or {}
-    episodes = scenario.get("episodes") or []
+    memories = scenario.get("memories") or []
     days = data.get('retime_newest_days_ago')
     if days is not None:
         try:
-            episodes = scenarios.retime_episodes(episodes, float(days))
+            memories = scenarios.retime_memories(memories, float(days))
         except (TypeError, ValueError):
             return jsonify({"error": "retime_newest_days_ago must be a number"}), 400
     try:
-        loaded = memory_store.replace_episodes(episodes)
+        loaded = memory_store.replace_memories(profile_id, memories)
     except ValueError as exc:
         return jsonify({"error": f"Scenario file invalid: {exc}"}), 400
     return jsonify({"loaded": loaded, "name": scenario.get("name") or slug})

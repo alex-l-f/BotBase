@@ -1,17 +1,22 @@
 """
 Named memory scenarios for demos.
 
-A scenario is a snapshot of the episodic memory log saved as a JSON file
-under scenarios/. Files are portable (sync them to another machine, commit
-them, hand-edit them) and human-readable:
+A scenario is a snapshot of one profile's template memories saved as a
+JSON file under scenarios/. Files are portable (sync them to another
+machine, commit them, hand-edit them) and human-readable:
 
-    {"name": ..., "description": ..., "saved_at": ..., "episodes": [...]}
+    {"name": ..., "description": ..., "saved_at": ...,
+     "memories": [{"chat_id": ..., "ts": ..., "template": ...,
+                   "slots": {...}}, ...]}
 
-Loading a scenario replaces the live episodic log via
-MemoryStore.replace_episodes (still the single writer). The retime helper
-shifts every timestamp by the same delta so the *newest* entry lands N days
-before now — relative spacing between entries is preserved, which keeps
-"user returning the day after a session" true no matter when the demo runs.
+Records contain only template keys and validated slots — the same privacy
+contract as the live store; rendered text is regenerated on load. Loading
+a scenario replaces the target profile's memories via
+MemoryStore.replace_memories (still the single writer). The retime helper
+shifts every timestamp by the same delta so the *newest* entry lands N
+days before now — relative spacing between entries is preserved, which
+keeps "user returning the day after a session" true no matter when the
+demo runs.
 """
 
 import json
@@ -54,13 +59,13 @@ def list_scenarios() -> list[dict]:
             "name": data.get("name") or fname[:-5],
             "description": data.get("description") or "",
             "saved_at": data.get("saved_at") or "",
-            "episodes": len(data.get("episodes") or []),
+            "memories": len(data.get("memories") or []),
         })
     out.sort(key=lambda s: s["saved_at"], reverse=True)
     return out
 
 
-def save_scenario(name: str, description: str, episodes: list[dict]) -> str:
+def save_scenario(name: str, description: str, memories: list[dict]) -> str:
     slug = _slugify(name)
     os.makedirs(SCENARIO_DIR, exist_ok=True)
     with open(_path(slug), "w", encoding="utf-8") as f:
@@ -68,7 +73,7 @@ def save_scenario(name: str, description: str, episodes: list[dict]) -> str:
             "name": name.strip(),
             "description": (description or "").strip(),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "episodes": episodes,
+            "memories": memories,
         }, f, indent=2, ensure_ascii=False)
     return slug
 
@@ -89,23 +94,23 @@ def delete_scenario(slug: str) -> bool:
         return False
 
 
-def retime_episodes(episodes: list[dict], newest_days_ago: float) -> list[dict]:
+def retime_memories(memories: list[dict], newest_days_ago: float) -> list[dict]:
     """Shift all parseable timestamps by one shared delta so the newest one
     becomes now - newest_days_ago. Unparseable timestamps pass through."""
     parsed = {}
-    for i, ep in enumerate(episodes):
+    for i, rec in enumerate(memories):
         try:
-            parsed[i] = datetime.fromisoformat(ep.get("ts") or "")
+            parsed[i] = datetime.fromisoformat(rec.get("ts") or "")
         except (ValueError, TypeError):
             pass
     if not parsed:
-        return episodes
+        return memories
     newest = max(parsed.values())
     delta = (datetime.now() - timedelta(days=newest_days_ago)) - newest
     out = []
-    for i, ep in enumerate(episodes):
-        ep = dict(ep)
+    for i, rec in enumerate(memories):
+        rec = dict(rec)
         if i in parsed:
-            ep["ts"] = (parsed[i] + delta).isoformat(timespec="seconds")
-        out.append(ep)
+            rec["ts"] = (parsed[i] + delta).isoformat(timespec="seconds")
+        out.append(rec)
     return out

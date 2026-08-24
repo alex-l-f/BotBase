@@ -886,6 +886,130 @@
     background: #fff;
   }
 
+  /* --- Profile picker overlay --- */
+  /* Shown until a user profile is chosen; the chat is unusable without
+     one because memory is profile-scoped. */
+
+  #profile-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(20, 24, 32, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  #profile-overlay.hidden { display: none; }
+
+  .profile-card {
+    width: 100%;
+    max-width: 460px;
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 85dvh;
+  }
+
+  .profile-card h2 { font-size: 18px; font-weight: 600; }
+
+  .profile-card .profile-lead {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  #profile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    min-height: 40px;
+  }
+
+  .profile-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .profile-item:hover { border-color: var(--accent); background: var(--surface); }
+
+  .profile-item .profile-name { font-weight: 600; }
+
+  .profile-item .profile-meta {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .profile-item .profile-delete {
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .profile-item .profile-delete:hover { color: #b42318; background: var(--bg); }
+
+  .profile-empty {
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 10px 4px;
+  }
+
+  .profile-new {
+    display: flex;
+    gap: 8px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+
+  .profile-new input {
+    flex: 1;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+
+  .profile-new input:focus { outline: none; border-color: var(--accent); }
+
+  .profile-new button {
+    padding: 9px 18px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .profile-new button:hover { filter: brightness(1.1); }
+
   /* On narrow screens the viewer replaces the chat rather than squeezing it. */
   @media (max-width: 900px) {
     body.viewer-open #chat-column { display: none; }
@@ -904,6 +1028,7 @@
   <h1>BotBase</h1>
   <span id="mode-badge" title="Current topic mode">Router</span>
   <span id="header-spacer"></span>
+  <button id="profile-btn" class="header-btn" title="Switch user profile (memories are scoped to the active profile)">👤 —</button>
   <select id="arch-select" title="Agent architecture: multi = coach + summarizer + memory; single = original one-agent baseline">
     <option value="multi">multi-agent</option>
     <option value="single">single-agent</option>
@@ -974,6 +1099,26 @@
 
 </div>
 
+<!-- Profile picker: shown on load and when switching profiles. Memory is
+     scoped to the selected user profile, so the chat stays locked behind
+     this until one is chosen. -->
+<div id="profile-overlay">
+  <div class="profile-card">
+    <h2>Who is practising today?</h2>
+    <p class="profile-lead">
+      Pick a profile to continue with its memory, or create a new one.
+      The assistant only stores anonymous template notes (topics discussed,
+      skills practised, resources shared) — never what was actually said —
+      and each profile only sees its own notes.
+    </p>
+    <div id="profile-list"><div class="profile-empty">Loading profiles…</div></div>
+    <div class="profile-new">
+      <input id="new-profile-name" placeholder="New profile name…" maxlength="60">
+      <button id="create-profile-btn">Create</button>
+    </div>
+  </div>
+</div>
+
 <!-- Agent debug panel: one live sub-pane per agent in the multi-agent
      architecture. Events stream in via the same polling queue as file
      cards; the panel is only revealed in debug mode. -->
@@ -999,7 +1144,7 @@
     <div class="agent-pane-header">
       <span class="agent-dot"></span>
       Memory
-      <span class="agent-role">episodic log · single writer</span>
+      <span class="agent-role">template notes · single writer</span>
     </div>
     <div class="agent-feed"></div>
   </div>
@@ -1031,6 +1176,8 @@ const contentFrame = document.getElementById('content-frame');
 
 let chatId = null;
 let fullContext = [];
+let userId = null;                 // active user profile (memory scope)
+let userName = '';
 let polling = false;
 let renderedCount = 0;             // entries from fullContext we've rendered
 let topicLabels = {};              // mode key → human label
@@ -1055,6 +1202,115 @@ window.SetDataChunk = function (data) {
 // The course syncs the parent tab title to its own; echoing our title back
 // keeps "BotBase Chat" in the tab.
 window.getCourseTitle = function () { return document.title; };
+
+// --- User profile picker ---
+// The chat stays behind the overlay until a profile is chosen; memory
+// injection, search, and writes are all scoped to the selected profile.
+
+const profileOverlay = document.getElementById('profile-overlay');
+const profileListEl = document.getElementById('profile-list');
+const profileBtn = document.getElementById('profile-btn');
+const newProfileInput = document.getElementById('new-profile-name');
+
+async function loadProfileList() {
+  profileListEl.textContent = '';
+  const note = document.createElement('div');
+  note.className = 'profile-empty';
+  note.textContent = 'Loading profiles…';
+  profileListEl.appendChild(note);
+  try {
+    const resp = await fetch(`${API}/api/user-profiles`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const profiles = data.profiles || [];
+    profileListEl.textContent = '';
+    if (!profiles.length) {
+      note.textContent = 'No profiles yet — create one below to get started.';
+      profileListEl.appendChild(note);
+      return;
+    }
+    for (const p of profiles) {
+      const item = document.createElement('button');
+      item.className = 'profile-item';
+      item.type = 'button';
+
+      const name = document.createElement('span');
+      name.className = 'profile-name';
+      name.textContent = p.name;
+      item.appendChild(name);
+
+      const meta = document.createElement('span');
+      meta.className = 'profile-meta';
+      const bits = [`${p.memories || 0} note${p.memories === 1 ? '' : 's'}`];
+      if (p.last_active) bits.push(`active ${p.last_active.slice(0, 10)}`);
+      meta.textContent = bits.join(' · ');
+      item.appendChild(meta);
+
+      const del = document.createElement('button');
+      del.className = 'profile-delete';
+      del.type = 'button';
+      del.textContent = '✕';
+      del.title = 'Delete this profile and all its memory notes';
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete profile "${p.name}" and all of its memory notes? This cannot be undone.`)) return;
+        try {
+          await fetch(`${API}/api/user-profiles/${p.id}`, { method: 'DELETE' });
+        } catch (err) {}
+        loadProfileList();
+      });
+      item.appendChild(del);
+
+      item.addEventListener('click', () => selectProfile(p.id, p.name));
+      profileListEl.appendChild(item);
+    }
+  } catch (e) {
+    note.textContent = 'Could not load profiles — is the server running (and are you logged in)?';
+    profileListEl.textContent = '';
+    profileListEl.appendChild(note);
+  }
+}
+
+function selectProfile(id, name) {
+  const changed = userId !== null && userId !== id;
+  userId = id;
+  userName = name;
+  profileBtn.textContent = `👤 ${name}`;
+  profileOverlay.classList.add('hidden');
+  // A different profile means a different memory scope — always start a
+  // fresh session so the server-side chat state can't straddle profiles.
+  if (changed || chatId) resetChat();
+  input.focus();
+}
+
+async function createProfile() {
+  const name = newProfileInput.value.trim();
+  if (!name) { newProfileInput.focus(); return; }
+  try {
+    const resp = await fetch(`${API}/api/user-profiles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error || 'Could not create the profile.'); return; }
+    newProfileInput.value = '';
+    selectProfile(data.id, data.name);
+  } catch (e) {
+    alert('Could not reach the server to create the profile.');
+  }
+}
+
+document.getElementById('create-profile-btn').addEventListener('click', createProfile);
+newProfileInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') createProfile();
+});
+profileBtn.addEventListener('click', () => {
+  loadProfileList();
+  profileOverlay.classList.remove('hidden');
+});
+
+loadProfileList();
 
 // --- Debug mode ---
 
@@ -1200,9 +1456,14 @@ function renderAgentEvent(ev) {
       agentFeedEntry(agent, 'ev-memory', 'search',
         `"${d.query}" → ${d.hits} hit(s)`);
       break;
+    case 'memory:extract_start':
+      agentFeedEntry(agent, 'ev-divider', '▶ extract',
+        `memory agent reviews the turn (model: ${d.model || '?'}, ` +
+        `${d.prior_notes ?? 0} existing note(s))`);
+      break;
     case 'memory:write':
       agentFeedEntry(agent, 'ev-memory', 'write',
-        `turn logged: ${d.rows} row(s), mode=${d.mode || 'none'}`);
+        `${d.rows} template note(s) recorded for profile #${d.profile}`);
       setAgentActive(agent, false);
       break;
     default:
@@ -1401,7 +1662,8 @@ input.addEventListener('keydown', (e) => {
 sendBtn.addEventListener('click', () => send());
 resetBtn.addEventListener('click', resetChat);
 document.getElementById('memory-btn').addEventListener('click', () => {
-  window.open(`${API}/memory`, '_blank');
+  const suffix = userId ? `?user=${userId}` : '';
+  window.open(`${API}/memory${suffix}`, '_blank');
 });
 
 // Welcome chips: clicking a starter sends it as the user's first message.
@@ -1767,6 +2029,7 @@ const TOOL_STATUS = {
   ask_library: 'Asking the library assistant',
   return_summary: 'Summarizing findings',
   memory_search: 'Recalling previous sessions',
+  record_memories: 'Saving memory notes',
   switch_mode: 'Switching topic',
   provide_file: 'Preparing a file to share',
   open_course_page: 'Opening a course page',
@@ -1776,12 +2039,16 @@ const TOOL_STATUS = {
 function statusForEvent(ev) {
   const d = ev.data || {};
   const inSummarizer = ev.agent === 'summarizer';
+  const inMemory = ev.agent === 'memory';
   switch (ev.type) {
     case 'turn_start': return 'Thinking';
     case 'spawn': return 'Asking the library assistant';
     case 'summary': return 'Library findings in — composing';
     case 'search': return 'Recalling previous sessions';
-    case 'llm_output': return inSummarizer ? 'Library assistant is reading' : 'Thinking';
+    case 'extract_start': return 'Updating memory notes';
+    case 'llm_output':
+      if (inMemory) return 'Updating memory notes';
+      return inSummarizer ? 'Library assistant is reading' : 'Thinking';
     case 'tool_call': {
       const s = TOOL_STATUS[d.name];
       if (!s) return null;
@@ -1902,6 +2169,13 @@ async function send(prefilled) {
   const text = (prefilled !== undefined ? prefilled : input.value).trim();
   if (!text) return;
 
+  // No active profile → no memory scope; re-open the picker instead.
+  if (!userId) {
+    loadProfileList();
+    profileOverlay.classList.remove('hidden');
+    return;
+  }
+
   if (prefilled === undefined) {
     input.value = '';
     input.style.height = 'auto';
@@ -1929,6 +2203,7 @@ async function send(prefilled) {
       body: JSON.stringify({
         chat_id: chatId, profile, fullContext,
         arch: archSelect.value,
+        user_id: userId,
         async: true,
       }),
     });
