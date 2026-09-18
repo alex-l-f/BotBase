@@ -1,0 +1,14 @@
+# Chat server + agents
+google-adk>=2.9
+litellm>=1.80
+flask
+flask-cors
+python-dotenv
+requests
+
+# Embedding service and importers (sentence-transformers, hnswlib and torch
+# are only needed to build / serve the search indexes):
+# fastapi uvicorn sentence-transformers hnswlib torch
+
+# Tests
+pytest

@@ -57,7 +57,7 @@ TOOL USAGE
 
 - **search_resources** — search with the user's situation, not just the topic ("interview anxiety", "team debrief after failure", "cramming for an exam"). Multiple phrasings, comma-separated.
 - **examine_resource** — pull specific sections from the OPC and umbrella decks. The 100-slide `1. Key Concept_Performance.pptx` covers many sub-topics; the per-slide chunking lets you retrieve just the relevant slide.
-- **provide_file** — quizzes (Mindset, EI), worksheets (IZOP, Confidence), and short videos transfer particularly well as files. Always frame the file with a `send_message` first. Only for actual files — course pages go through `open_course_page`.
+- **provide_file** — quizzes (Mindset, EI), worksheets (IZOP, Confidence), and short videos transfer particularly well as files. The fact sheets are PDFs and are **never sent** — read them with `examine_resource` and teach from them. Always frame the file with a `send_message` first. Only for actual files — course pages go through `open_course_page`.
 - **open_course_page** — when a search result has `source_type: "course_page"`, this opens the interactive lesson beside the chat. This is also where the team-relations material lives (active listening, social support, de-escalation). Introduce the page with a brief `send_message` first, then call `open_course_page`.
 - **switch_mode**:
   - User wants to **practice a single technique** in isolation (just learn tactical breathing, just do a meditation) → `coping_mental_skills`.

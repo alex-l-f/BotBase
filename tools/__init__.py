@@ -28,8 +28,15 @@ def load_tools() -> None:
                 log.debug("Registered tool: %s", name)
 
 
-def get_schemas(toolset=None) -> list:
-    """Return tool schemas to pass to the LLM.
+def get_tool(name: str) -> BaseTool:
+    """The registered tool instance called *name*."""
+    if name not in _registry:
+        raise KeyError(f"Unknown tool {name!r}. Registered: {sorted(_registry)}")
+    return _registry[name]
+
+
+def get_tools(toolset=None) -> list[BaseTool]:
+    """Return the tool instances in a toolset.
 
     toolset can be:
       None          – all registered tools
@@ -37,7 +44,7 @@ def get_schemas(toolset=None) -> list:
       list[str]     – an explicit list of tool names
     """
     if toolset is None:
-        return [tool.schema for tool in _registry.values()]
+        return list(_registry.values())
 
     if isinstance(toolset, str):
         if toolset not in TOOLSETS:
@@ -48,13 +55,18 @@ def get_schemas(toolset=None) -> list:
     else:
         names = list(toolset)
 
-    schemas = []
+    tools = []
     for name in names:
         if name in _registry:
-            schemas.append(_registry[name].schema)
+            tools.append(_registry[name])
         else:
             log.warning("Toolset references unknown tool %r — skipping", name)
-    return schemas
+    return tools
+
+
+def get_schemas(toolset=None) -> list:
+    """Return tool schemas to pass to the LLM (see get_tools for *toolset*)."""
+    return [tool.schema for tool in get_tools(toolset)]
 
 
 def dispatch(name: str, arguments: dict, context: dict):

@@ -1,8 +1,10 @@
 import json
 
 from .base import BaseTool
+from .provide_file import UNSERVED_SOURCE_TYPES
 
 _CONFIDENCE_LEVELS = ("high", "medium", "low")
+MAX_RESOURCES = 4
 
 
 class ReturnSummary(BaseTool):
@@ -31,15 +33,18 @@ class ReturnSummary(BaseTool):
                     "answer": {
                         "type": "string",
                         "description": (
-                            "2-6 sentences directly answering the coach's "
-                            "question. Quote canonical program definitions "
-                            "verbatim where they matter."
+                            "2-6 sentences (at most ~120 words) directly "
+                            "answering the coach's question. Quote canonical "
+                            "program definitions verbatim where they matter."
                         ),
                     },
                     "key_points": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Up to 6 short bullets the coach can use directly.",
+                        "description": (
+                            "Up to 6 short bullets (20 words each at most) "
+                            "the coach can use directly."
+                        ),
                     },
                     "resources": {
                         "type": "array",
@@ -54,9 +59,10 @@ class ReturnSummary(BaseTool):
                             "required": ["id"],
                         },
                         "description": (
-                            "Resources worth delivering to the user, by exact "
-                            "id from your own search results (e.g. "
-                            "'RES_00012'). Never invent an id."
+                            "At most 4 resources worth delivering to the "
+                            "user, by exact id from your own search results "
+                            "(e.g. 'RES_00012'). Never invent an id. Keep "
+                            "why_relevant to one short line."
                         ),
                     },
                     "confidence": {
@@ -90,8 +96,8 @@ class ReturnSummary(BaseTool):
         if confidence not in _CONFIDENCE_LEVELS:
             confidence = "low"
 
-        known_ids = {
-            r.get("id") for r in context.get("existing_resources", [])
+        known = {
+            r.get("id"): r for r in context.get("existing_resources", [])
         }
         resources = []
         unknown = []
@@ -99,12 +105,20 @@ class ReturnSummary(BaseTool):
             if not isinstance(r, dict):
                 continue
             rid = r.get("id")
-            if rid in known_ids:
+            if rid in known:
+                retrieved = known[rid]
+                # Trust the retrieved row over the model's recollection of
+                # what kind of resource this is.
+                source_type = (retrieved.get("source_type")
+                               or r.get("source_type") or "")
                 resources.append({
                     "id": rid,
-                    "title": r.get("title", ""),
-                    "source_type": r.get("source_type", ""),
+                    "title": r.get("title") or retrieved.get("title", ""),
+                    "source_type": source_type,
                     "why_relevant": r.get("why_relevant", ""),
+                    # PDFs are read and summarized, never handed over: tell
+                    # the coach up front so it doesn't try provide_file.
+                    "deliverable": source_type.lower() not in UNSERVED_SOURCE_TYPES,
                 })
             else:
                 unknown.append(rid)
@@ -122,10 +136,12 @@ class ReturnSummary(BaseTool):
             if str(p).strip()
         ][:6]
 
+        # Over-long lists are trimmed rather than bounced: a rejection costs
+        # another full generation, and the coach only needs the top few.
         context["state"]["summary"] = {
             "answer": answer,
             "key_points": key_points,
-            "resources": resources,
+            "resources": resources[:MAX_RESOURCES],
             "confidence": confidence,
             "notes": (arguments.get("notes") or "").strip(),
         }

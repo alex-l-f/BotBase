@@ -1,5 +1,11 @@
 from .base import BaseTool
 
+# Document types the bot never hands to the user. Their content reaches the
+# conversation by being read instead: the library summarizer (multi arch)
+# or the bot itself (single arch) examines the resource's transcript and
+# explains it. Enforced here, at the tool layer, not by prompt goodwill.
+UNSERVED_SOURCE_TYPES = frozenset({"pdf"})
+
 
 def _lookup_resource(resource_id: str, context: dict) -> dict | None:
     """
@@ -48,9 +54,12 @@ class ProvideFile(BaseTool):
                 "download link as appropriate for the file type. Use this "
                 "when the user has agreed they want the file, or when "
                 "the most helpful response is to hand them the source "
-                "material (a guided practice audio, walkthrough video, "
-                "or skill-summary PDF). Always send a brief send_message "
-                "FIRST introducing the file, then call provide_file."
+                "material (a guided practice audio or walkthrough video). "
+                "PDF documents are never sent: their content is read and "
+                "summarized for the user instead (ask_library in "
+                "multi-agent mode, examine_resource otherwise). Always "
+                "send a brief send_message FIRST introducing the file, "
+                "then call provide_file."
             ),
             "parameters": {
                 "type": "object",
@@ -95,6 +104,27 @@ class ProvideFile(BaseTool):
                 f"ERROR: Resource {resource_id} is an e-learning course "
                 "page, not a file. Use open_course_page to show it to the "
                 "user."
+            )
+
+        source_type = (resource.get("source_type") or "").lower()
+        if source_type in UNSERVED_SOURCE_TYPES:
+            title = resource.get("title") or resource_id
+            if context.get("arch") == "multi":
+                how = (
+                    "call ask_library with a question that names it (e.g. "
+                    f"\"What does '{title}' say about ...?\"). The library "
+                    "summarizer reads its transcript and returns a summary "
+                    "for you to relay in your own words."
+                )
+            else:
+                how = (
+                    f"call examine_resource on {resource_id}, read its "
+                    "full_transcript, and explain the content in your own "
+                    "words."
+                )
+            return (
+                f"ERROR: {source_type.upper()} documents are not sent to "
+                f"the user, so '{title}' was NOT delivered. Instead, {how}"
             )
 
         url = resource.get("portalURL") or resource.get("portal_url") or ""

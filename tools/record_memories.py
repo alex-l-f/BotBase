@@ -14,7 +14,7 @@ class RecordMemories(BaseTool):
 
     Only exposed in the 'memory_agent' toolset. Ends the extraction run by
     stashing a list of validated template records in its state; the caller
-    (memory_agent.run_memory_agent) hands them to MemoryStore.add_memories,
+    (adk_app.subagents.run_memory_agent) hands them to MemoryStore.add_memories,
     which stays the single writer.
 
     This schema is the privacy enforcement point: every slot is an enum or

@@ -46,6 +46,15 @@ class FinishTurn(BaseTool):
                 "finish_turn."
             )
 
+        # A delivered file or course page counts as responding, but the
+        # user still needs words: what it is and why they got it.
+        if state["has_responded"] and not state.get("sent_messages"):
+            return (
+                "ERROR: you delivered a file or course page but never sent "
+                "a message. Call send_message to tell the user what it is "
+                "and why, then call finish_turn."
+            )
+
         if state["has_responded"]:
             state["done"] = True
             return "Message(s) sent to user. Waiting for reply."

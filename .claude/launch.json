@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "botbase",
+      "runtimeExecutable": "E:\\conda_envs\\ai\\python.exe",
+      "runtimeArgs": ["server.py"],
+      "port": 5551
+    },
+    {
+      "name": "botbase-adk",
+      "runtimeExecutable": "E:\\Experiments\\BotBase\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["server.py", "--backend", "openrouter"],
+      "port": 5551
+    },
+    {
+      "name": "embedding",
+      "runtimeExecutable": "E:\\Experiments\\BotBase\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "embedding_service:app", "--host", "0.0.0.0", "--port", "8201", "--workers", "1"],
+      "port": 8201
+    },
+    {
+      "name": "botbase-adk-local",
+      "runtimeExecutable": "E:\\Experiments\\BotBase\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["server.py", "--backend", "llama_cpp"],
+      "port": 5551
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory, send_file, abort
 from flask_cors import CORS
-from agent import (
+from adk_app import (
     get_LM_response,
     create_chat_session,
     get_messages,
@@ -707,9 +707,9 @@ def _parse_args():
         choices=sorted(BACKENDS.keys()),
         default=os.getenv("BOTBASE_BACKEND", "openrouter"),
         help=(
-            "Which LLM backend to use. 'openrouter' calls OpenRouter's API "
-            "(needs OPENROUTER_API_KEY in .env); 'llama_cpp' targets a local "
-            "llama.cpp server. Defaults to $BOTBASE_BACKEND, then 'openrouter'."
+            "Which LLM backend to use: "
+            + "; ".join(f"'{k}' — {v['help']}" for k, v in BACKENDS.items())
+            + ". Defaults to $BOTBASE_BACKEND, then 'openrouter'."
         ),
     )
     parser.add_argument(

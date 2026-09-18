@@ -41,21 +41,10 @@ class AskLibrary(BaseTool):
     }
 
     def execute(self, arguments: dict, context: dict):
-        state = context["state"]
-        state["done"] = False
-
-        question = (arguments.get("question") or "").strip()
-        if not question:
-            return "ERROR: Missing 'question' argument in ask_library."
-
-        if not context.get("database"):
-            return (
-                "ERROR: No topic library is active. Use switch_mode to "
-                "select a topic before asking the library."
-            )
-
-        # Imported lazily: tools are auto-discovered at import time, and the
-        # summarizer module pulls in prompts + the tool registry itself.
-        from summarizer_agent import run_summarizer
-
-        return run_summarizer(question, context)
+        # The summarizer is an ADK sub-run, which has to be awaited from the
+        # agent's event loop; adk_app.tools.AskLibraryTool does that and
+        # reuses this schema. Only that path is wired into the coach.
+        return (
+            "ERROR: ask_library is only available through the ADK runtime "
+            "(adk_app.tools.AskLibraryTool)."
+        )
