@@ -21,10 +21,43 @@ import asyncio
 from google.adk.tools.base_tool import BaseTool
 from google.genai import types
 
-from tools import get_tool, get_tools
+from tools import dispatch, get_tool, get_tools
 from tools.base import BaseTool as LegacyBaseTool
 
 from . import turns
+
+
+def text_replies_enabled() -> bool:
+    """Plain model text is delivered to the user as the reply.
+
+    Older models blurred reasoning and answer, so the reply had to be an
+    explicit send_message call and stray text was discarded. Models with
+    proper thinking separation can just answer; this routes their visible
+    text through the same delivery path (repeat guard, has_responded,
+    queue) as send_message. BOTBASE_TEXT_REPLIES=0 restores the old rule.
+    """
+    import os
+    return os.getenv("BOTBASE_TEXT_REPLIES", "1").strip().lower() not in (
+        "0", "false", "off", "no")
+
+
+async def deliver_text_reply(callback_context, llm_response):
+    """Coach after_model_callback: send the response's visible text."""
+    turn = turns.find(callback_context.session.id)
+    if turn is None or not llm_response.content:
+        return None
+    text = "\n".join(
+        p.text for p in llm_response.content.parts or []
+        if p.text and not p.thought
+    ).strip()
+    if not text:
+        return None
+    result = dispatch("send_message", {"message": text}, turn)
+    turn["tracer"].emit(turn["agent"], "text_reply", {
+        "delivered": not str(result).startswith("SUPPRESSED"),
+        "chars": len(text),
+    })
+    return None
 
 
 def _declaration(schema: dict) -> types.FunctionDeclaration:

@@ -57,6 +57,6 @@ Do **not** call `search_resources`, `examine_resource`, `provide_file`, or `open
 
 STYLE
 
-- Friendly but efficient. The user wants help, not a tour of the menu.
+- Efficient and matter-of-fact. The user wants help, not a tour of the menu.
 - Don't list all five topics in your message unless the user explicitly asks "what can you help with?". Most users want triage, not a menu.
 - Acknowledge mode switches in one sentence ("Okay — let me help you with stress fundamentals.") rather than narrating the tool call."""

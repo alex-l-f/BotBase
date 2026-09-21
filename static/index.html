@@ -431,6 +431,56 @@
     word-wrap: break-word;
   }
 
+  /* Markdown-rendered bot bubbles: block elements do the spacing, so the
+     pre-wrap used for literal text is switched off. */
+  .message.md { white-space: normal; }
+  .message.md > :first-child { margin-top: 0; }
+  .message.md > :last-child { margin-bottom: 0; }
+  .message.md p { margin: 0 0 0.65em; }
+  .message.md ul, .message.md ol { margin: 0.2em 0 0.65em; padding-left: 1.45em; }
+  .message.md li { margin: 0.2em 0; }
+  .message.md li > ul, .message.md li > ol { margin: 0.2em 0; }
+  .message.md .md-h { font-weight: 600; line-height: 1.3; margin: 0.85em 0 0.35em; }
+  .message.md .md-h1 { font-size: 1.25em; }
+  .message.md .md-h2 { font-size: 1.15em; }
+  .message.md .md-h3 { font-size: 1.05em; }
+  .message.md code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    background: rgba(127, 127, 127, 0.18);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+  .message.md pre {
+    margin: 0.4em 0 0.7em;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(127, 127, 127, 0.15);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .message.md pre code { background: none; padding: 0; }
+  .message.md blockquote {
+    margin: 0.4em 0 0.7em;
+    padding: 0.1em 0 0.1em 0.8em;
+    border-left: 3px solid var(--border);
+    opacity: 0.9;
+  }
+  .message.md hr { border: 0; border-top: 1px solid var(--border); margin: 0.8em 0; }
+  .message.md a { color: inherit; text-decoration: underline; }
+  .message.md table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 0.4em 0 0.7em;
+    font-size: 0.92em;
+  }
+  .message.md th, .message.md td {
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    text-align: left;
+  }
+
   .message.user {
     align-self: flex-end;
     background: var(--user-bg);
@@ -1181,6 +1231,7 @@ let userName = '';
 let polling = false;
 let renderedCount = 0;             // entries from fullContext we've rendered
 let topicLabels = {};              // mode key → human label
+let textReplies = false;           // server delivers plain model text as the reply
 let inFlightFileIds = new Set();   // resource_ids already rendered (dedupe)
 let activeLessonBtn = null;        // highlighted entry in the course panel
 let lessonButtons = {};            // lesson id → button in the course panel
@@ -1685,6 +1736,7 @@ fetch(`${API}/api/topics`)
     }
     profileSelect.value = data.router || 'router';
     if (data.arch_default) archSelect.value = data.arch_default;
+    textReplies = !!data.text_replies;
     setModeBadge(profileSelect.value);
   })
   .catch(() => {});
@@ -1775,10 +1827,188 @@ function renderToolResult(content) {
   chatArea.insertBefore(group, typingIndicator);
 }
 
+// --- Markdown (begin) ---
+// Basic, dependency-free markdown for the bot's bubbles. Safety model:
+// every piece of source text goes through escapeHtml BEFORE any markup is
+// added, and the only attribute built from source text is a link href
+// restricted to http(s)/mailto/relative URLs — so model output can never
+// inject HTML or script.
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Brackets stashed code spans. A private-use character, built at runtime
+// so this source stays plain ASCII.
+const MD_MARK = String.fromCharCode(0xE000);
+const MD_MARK_RE = new RegExp(MD_MARK + '([0-9]+)' + MD_MARK, 'g');
+
+function mdInline(text) {
+  // Pull code spans out first so their contents are never formatted.
+  const codes = [];
+  let s = String(text).replace(/`([^`\n]+)`/g, (_, c) => {
+    codes.push(c);
+    return `${MD_MARK}${codes.length - 1}${MD_MARK}`;
+  });
+  s = escapeHtml(s);
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
+    const raw = url.replace(/&amp;/g, '&');
+    if (!/^(https?:\/\/|mailto:|\/|\.\/|api\/|scorm\/)/i.test(raw)) return m;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+  s = s.replace(/\*\*\*([^\s*](?:[^\n]*?[^\s*])?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\*\*([^\s*](?:[^\n]*?[^\s])?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^\w_])__([^\s_](?:[^\n]*?[^\s])?)__(?![\w_])/g, '$1<strong>$2</strong>');
+  s = s.replace(/(^|[^*\w])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![*\w])/g, '$1<em>$2</em>');
+  s = s.replace(/(^|[^\w_])_([^\s_](?:[^_\n]*?[^\s_])?)_(?![\w_])/g, '$1<em>$2</em>');
+  s = s.replace(/~~([^\s~](?:[^\n]*?[^\s~])?)~~/g, '<del>$1</del>');
+  s = s.replace(MD_MARK_RE, (_, i) => `<code>${escapeHtml(codes[+i])}</code>`);
+  return s.replace(/\n/g, '<br>');
+}
+
+const MD_LIST_ITEM = /^(\s*)([-*+]|\d{1,3}[.)])\s+(.*)$/;
+const MD_TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+function mdTableCells(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+}
+
+function mdList(items) {
+  // items: [{indent, ordered, start, text}] → nested <ul>/<ol> by indent.
+  let html = '';
+  const stack = [];
+  const open = it => {
+    const tag = it.ordered ? 'ol' : 'ul';
+    const start = it.ordered && it.start !== 1 ? ` start="${it.start}"` : '';
+    html += `<${tag}${start}>`;
+    stack.push({ indent: it.indent, tag });
+  };
+  for (const it of items) {
+    while (stack.length && it.indent < stack[stack.length - 1].indent) {
+      html += `</li></${stack.pop().tag}>`;
+    }
+    const top = stack[stack.length - 1];
+    if (!top || it.indent > top.indent) {
+      open(it);
+    } else {
+      html += '</li>';
+      if (top.tag !== (it.ordered ? 'ol' : 'ul')) {
+        html += `</${stack.pop().tag}>`;
+        open(it);
+      }
+    }
+    html += `<li>${mdInline(it.text)}`;
+  }
+  while (stack.length) html += `</li></${stack.pop().tag}>`;
+  return html;
+}
+
+function renderMarkdown(src) {
+  const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let para = [];
+  const flush = () => {
+    if (para.length) out.push(`<p>${mdInline(para.join('\n'))}</p>`);
+    para = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const fence = line.match(/^\s*(```|~~~)/);
+    if (fence) {
+      flush();
+      const body = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith(fence[1]); i++) body.push(lines[i]);
+      out.push(`<pre><code>${escapeHtml(body.join('\n'))}</code></pre>`);
+      continue;
+    }
+    if (!line.trim()) { flush(); continue; }
+
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (heading) {
+      flush();
+      out.push(`<div class="md-h md-h${heading[1].length}">${mdInline(heading[2])}</div>`);
+      continue;
+    }
+    if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); out.push('<hr>'); continue; }
+
+    if (/^\s{0,3}>/.test(line)) {
+      flush();
+      const quote = [];
+      for (; i < lines.length && /^\s{0,3}>/.test(lines[i]); i++) {
+        quote.push(lines[i].replace(/^\s{0,3}>\s?/, ''));
+      }
+      i--;
+      out.push(`<blockquote>${renderMarkdown(quote.join('\n'))}</blockquote>`);
+      continue;
+    }
+
+    if (line.includes('|') && i + 1 < lines.length && MD_TABLE_SEP.test(lines[i + 1])
+        && lines[i + 1].includes('-')) {
+      flush();
+      const head = mdTableCells(line);
+      let html = '<table><thead><tr>'
+        + head.map(c => `<th>${mdInline(c)}</th>`).join('') + '</tr></thead><tbody>';
+      for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) {
+        html += '<tr>' + mdTableCells(lines[i]).map(c => `<td>${mdInline(c)}</td>`).join('') + '</tr>';
+      }
+      i--;
+      out.push(html + '</tbody></table>');
+      continue;
+    }
+
+    if (MD_LIST_ITEM.test(line)) {
+      flush();
+      const items = [];
+      for (; i < lines.length; i++) {
+        const m = lines[i].match(MD_LIST_ITEM);
+        if (m) {
+          const ordered = /\d/.test(m[2]);
+          items.push({
+            indent: m[1].replace(/\t/g, '    ').length,
+            ordered,
+            start: ordered ? parseInt(m[2], 10) : 1,
+            text: m[3],
+          });
+        } else if (lines[i].trim() && /^\s{2,}/.test(lines[i])) {
+          items[items.length - 1].text += '\n' + lines[i].trim();   // continuation
+        } else if (!lines[i].trim()) {
+          // A blank line only ends the list if what follows isn't more list.
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j++;
+          if (j >= lines.length || !(MD_LIST_ITEM.test(lines[j]) || /^\s{2,}\S/.test(lines[j]))) break;
+        } else {
+          break;
+        }
+      }
+      i--;
+      out.push(mdList(items));
+      continue;
+    }
+
+    para.push(line);
+  }
+  flush();
+  return out.join('');
+}
+// --- Markdown (end) ---
+
+// Bot bubbles are rendered as markdown; user text stays literal.
+function setBubbleContent(el, role, content) {
+  if (role === 'assistant') {
+    el.classList.add('md');
+    el.innerHTML = renderMarkdown(content);
+  } else {
+    el.textContent = content;
+  }
+}
+
 function appendMessage(role, content) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
-  div.textContent = content;
+  setBubbleContent(div, role, content);
   chatArea.insertBefore(div, typingIndicator);
   chatArea.scrollTop = chatArea.scrollHeight;
 }
@@ -1959,14 +2189,17 @@ function parseToolArgs(args) {
 }
 
 function renderAssistantMessage(msg) {
-  // The bot's user-facing replies travel through the send_message tool;
-  // anything in the raw content field (or reasoning fields some backends
-  // attach) is the model thinking out loud — debug material, not chat.
+  // Reasoning fields some backends attach are the model thinking out
+  // loud — debug material, not chat. The content field is the reply
+  // itself when the server runs with text replies on (delivered before
+  // any tool call in the same response); otherwise replies travel only
+  // through the send_message tool and stray content is internal output.
   const reasoning = [msg.reasoning_content, msg.reasoning]
     .filter(v => v && String(v).trim()).join('\n\n');
   if (reasoning) renderInternal('reasoning', reasoning.trim());
   if (msg.content && msg.content.trim()) {
-    renderInternal('model output', msg.content.trim());
+    if (textReplies) appendMessage('assistant', msg.content.trim());
+    else renderInternal('model output', msg.content.trim());
   }
 
   const sendMessages = [];
@@ -2085,7 +2318,7 @@ function showProvisional(content) {
     provisionalBubble.className = 'message assistant provisional';
     chatArea.insertBefore(provisionalBubble, typingIndicator);
   }
-  provisionalBubble.textContent = text;
+  setBubbleContent(provisionalBubble, 'assistant', text);
   chatArea.scrollTop = chatArea.scrollHeight;
 }
 

@@ -27,8 +27,16 @@ from prompts.topics import TOPICS
 
 from . import turns
 from .models import GENERATE_CONFIG
-from .tools import build_tools
+from .tools import build_tools, deliver_text_reply, text_replies_enabled
 from .tracing import TracePlugin
+
+_TEXT_REPLIES_NOTE = """
+
+====
+
+REPLYING
+
+Anything you write as plain text (outside tool calls and outside your thinking) is delivered to the user as your reply, exactly as if you had passed it to send_message. So simply write your answer; send_message still works but is not required. A response with no tool calls ends your turn, so there is no need to call finish_turn after a plain-text answer. Text written in the same response as a tool call is delivered before the tool runs, which is the right way to introduce a file or course page."""
 
 COACH_AGENT = "coach"
 SUMMARIZER_AGENT = "summarizer"
@@ -48,6 +56,8 @@ def coach_instruction(ctx: ReadonlyContext) -> str:
     mode = ctx.state.get("mode")
     profile = mode if mode in TOPICS else turn.get("profile")
     prompt = get_prompt(profile or "default", turn.get("arch", "single"))
+    if text_replies_enabled():
+        prompt += _TEXT_REPLIES_NOTE
     return prompt + (turn.get("profile_block") or "")
 
 
@@ -58,6 +68,8 @@ def build_coach(model: str | BaseLlm, toolset) -> LlmAgent:
         instruction=coach_instruction,
         tools=build_tools(toolset),
         generate_content_config=GENERATE_CONFIG,
+        after_model_callback=(
+            deliver_text_reply if text_replies_enabled() else None),
     )
 
 

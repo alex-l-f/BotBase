@@ -28,6 +28,9 @@ def get_prompt(profile_name: str | None = None, arch: str = "single") -> str:
     module_name = PROFILES[name]["prompt_module"]
     module = importlib.import_module(f".{module_name}", package=__name__)
     prompt = module.PROMPT
+    if name in TOPICS:
+        from .tone import TONE
+        prompt = prompt + TONE
     if arch == "multi" and name in TOPICS:
         from .coach_overlay import overlay_for
         prompt = prompt + overlay_for(name)

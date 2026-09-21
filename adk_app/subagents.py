@@ -36,6 +36,7 @@ from .agents import (
 )
 from .history import NUDGE_METADATA
 from .models import make_model
+from .tools import text_replies_enabled
 
 log = logging.getLogger(__name__)
 
@@ -196,6 +197,12 @@ def _turn_surface(turn_messages: list[dict]) -> list[str]:
             if content:
                 lines.append(f"user: {content}")
         elif role == "assistant":
+            # With text replies on, the model's visible text IS what the
+            # user was told (thinking is exported separately as reasoning).
+            if text_replies_enabled():
+                content = (msg.get("content") or "").strip()
+                if content:
+                    lines.append(f"coach: {content}")
             for tc in msg.get("tool_calls") or []:
                 fn = tc.get("function") or tc
                 name = fn.get("name") or ""

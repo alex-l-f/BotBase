@@ -13,6 +13,7 @@ from adk_app import (
     memory_store,
     BACKENDS,
 )
+from adk_app.tools import text_replies_enabled
 from prompts import list_profiles, ARCHITECTURES
 from prompts.topics import TOPICS, ROUTER_MODE
 from memory_templates import registry_for_api
@@ -331,6 +332,9 @@ def get_topics():
         "router": ROUTER_MODE,
         "arch_default": DEFAULT_ARCH,
         "architectures": list(ARCHITECTURES),
+        # Plain model text is the reply (render it as chat, not as
+        # internal output).
+        "text_replies": text_replies_enabled(),
         "topics": [
             {
                 "key": k,
