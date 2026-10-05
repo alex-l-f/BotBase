@@ -1231,7 +1231,6 @@ let userName = '';
 let polling = false;
 let renderedCount = 0;             // entries from fullContext we've rendered
 let topicLabels = {};              // mode key → human label
-let textReplies = false;           // server delivers plain model text as the reply
 let inFlightFileIds = new Set();   // resource_ids already rendered (dedupe)
 let activeLessonBtn = null;        // highlighted entry in the course panel
 let lessonButtons = {};            // lesson id → button in the course panel
@@ -1736,7 +1735,6 @@ fetch(`${API}/api/topics`)
     }
     profileSelect.value = data.router || 'router';
     if (data.arch_default) archSelect.value = data.arch_default;
-    textReplies = !!data.text_replies;
     setModeBadge(profileSelect.value);
   })
   .catch(() => {});
@@ -2191,14 +2189,15 @@ function parseToolArgs(args) {
 function renderAssistantMessage(msg) {
   // Reasoning fields some backends attach are the model thinking out
   // loud — debug material, not chat. The content field is the reply
-  // itself when the server runs with text replies on (delivered before
-  // any tool call in the same response); otherwise replies travel only
-  // through the send_message tool and stray content is internal output.
+  // itself when the server delivered it to the user (it marks such
+  // messages `delivered`; with text replies on, that is every reply,
+  // sent before any tool call in the same response); otherwise replies
+  // travel only through send_message and stray content is internal.
   const reasoning = [msg.reasoning_content, msg.reasoning]
     .filter(v => v && String(v).trim()).join('\n\n');
   if (reasoning) renderInternal('reasoning', reasoning.trim());
   if (msg.content && msg.content.trim()) {
-    if (textReplies) appendMessage('assistant', msg.content.trim());
+    if (msg.delivered) appendMessage('assistant', msg.content.trim());
     else renderInternal('model output', msg.content.trim());
   }
 

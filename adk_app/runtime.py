@@ -37,6 +37,7 @@ from . import history, turns
 from .agents import COACH_AGENT, COACH_MAX_LLM_CALLS, build_coach, make_runner
 from .models import make_model
 from .subagents import run_memory_agent, run_until_done
+from .tools import text_replies_enabled
 
 log = logging.getLogger(__name__)
 
@@ -214,6 +215,16 @@ async def _turn(conversation_dict, chat_id, model, system_prompt, toolset,
         full_context = history.events_to_messages(session.events)
         new_messages = history.events_to_messages(
             session.events[events_before:], include_user=False)
+        if text_replies_enabled():
+            # Self-describing history: the client renders a message's text
+            # as chat because the message says it was delivered, not
+            # because of a flag it fetched at startup.
+            for msg in full_context:
+                if msg["role"] == "assistant" and msg.get("content"):
+                    msg["delivered"] = True
+            for msg in new_messages:
+                if msg["role"] == "assistant" and msg.get("content"):
+                    msg["delivered"] = True
 
         # Memory extraction — the single writer's only call site. The memory
         # agent turns this turn's conversational surface into anonymous

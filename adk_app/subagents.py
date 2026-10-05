@@ -48,7 +48,7 @@ NUDGE_MAX_LLM_CALLS = 2
 # and the most an examine_resource result may put into its context. Every
 # extra examine is another few thousand prompt tokens on each later call,
 # and the model reads well past the prompt's "0-3" without a hard stop.
-SUMMARIZER_TOOL_BUDGETS = {"search_resources": 4, "examine_resource": 3}
+SUMMARIZER_TOOL_BUDGETS = {"search_resources": 6, "examine_resource": 5}
 EXAMINE_RESULT_CAP = int(os.getenv("SUMMARIZER_EXAMINE_CHARS", "12000"))
 
 

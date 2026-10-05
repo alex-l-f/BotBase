@@ -1,6 +1,6 @@
 # BotBase
 
-A modular, expandable chatbot framework built around an LLM agent loop with a plugin-based tool system. Designed as a clean starting point for building any kind of conversational AI agent.
+A modular, expandable chatbot framework built on Google's [Agent Development Kit](https://google.github.io/adk-docs/) (ADK) with a plugin-based tool system. Designed as a clean starting point for building any kind of conversational AI agent.
 
 Ships with two selectable agent architectures (see [Multi-Agent Architecture](#multi-agent-architecture)):
 
@@ -10,15 +10,23 @@ Ships with two selectable agent architectures (see [Multi-Agent Architecture](#m
 ## Project Structure
 
 ```
-agent.py              Core agent loop — runs the coach LLM, dispatches tool calls
-summarizer_agent.py   Summarizer sub-agent — read-only research loop with a
-                      structured output contract (multi arch only)
+adk_app/              The agents, on ADK
+  runtime.py          One coach turn: ADK session per chat, Runner, history
+                      export, memory extraction — the API server.py calls
+  agents.py           The coach / summarizer / memory LlmAgents + runners
+  subagents.py        Summarizer and memory-agent sub-runs (fresh session
+                      per spawn, terminal-tool contract, one nudge)
+  tools.py            Adapts the tools/ plugins to ADK BaseTool; ask_library
+                      as an ADK sub-run
+  turns.py            Per-turn context registry the plugins read from
+  tracing.py          ADK plugin that streams every model/tool event to the
+                      debug UI and trace log
+  history.py          ADK events <-> the message list the frontend renders
+  models.py           LLM backends (OpenRouter / llama.cpp via LiteLLM, Gemini)
 memory.py             Profile-scoped template memory store — SQLite + FTS5,
                       single-writer
 memory_templates.py   Template registry — the fixed vocabulary of what memory
                       is allowed to store (the privacy contract)
-memory_agent.py       Memory extraction sub-agent — turns each finished turn
-                      into template records via structured generation
 trace.py              Per-agent instrumentation — streams events to the debug UI
                       and persists them to the trace log
 server.py             Flask API server — exposes chat endpoints
@@ -33,7 +41,11 @@ prompts/              Prompt system (profile-based)
   default.py          Default system prompt (customize this)
   summarizer.py       System prompt for the summarizer sub-agent
   memory_agent.py     System prompt for the memory extraction sub-agent
-  coach_overlay.py    Multi-agent overlay appended to topic prompts
+  coach_overlay.py    Multi-agent adaptation of the topic prompts: rewrites
+                      their search/examine guidance onto ask_library and
+                      appends the coach overlay
+  tone.py             House tone (neutral but serious, no emojis) appended
+                      to the router and every topic prompt
 
 tools/                Tool plugin system
   base.py             Abstract BaseTool class — extend this to add tools
@@ -51,20 +63,34 @@ tools/                Tool plugin system
   record_memories.py  Memory agent's structured output contract — only admits
                       registered templates (multi arch)
 
-LMInterface/          LLM backend adapters
-  lcpp_interface.py   llama.cpp (via OpenAI-compatible API)
-  openai_interface.py OpenAI API
-  openrouter_interface.py  OpenRouter API
+LMInterface/          Standalone OpenAI-compatible client adapters from the
+                      pre-ADK loop; no longer used by the server
 ```
 
 ## Quick Start
 
-1. Create a `.env` file with your API key(s):
+1. Install the dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Create a `.env` file with your API key(s):
    ```
    OPENROUTER_API_KEY=your_key_here
    ```
-
-2. Choose your LLM backend by uncommenting the appropriate import in `agent.py`.
+   Pick the LLM backend with `python server.py --backend openrouter|llama_cpp|gemini`
+   (or `BOTBASE_BACKEND`). `openrouter` uses `BOTBASE_MODEL` (default
+   `openai/gpt-oss-20b`) with `BOTBASE_REASONING_EFFORT` (`low` / `medium` /
+   `high` / `off`, default `medium`; `SUMMARIZER_REASONING_EFFORT` and
+   `MEMORY_REASONING_EFFORT` override it for the helper agents — set them to
+   `low`, the helpers' output is structured and thinking tokens are what a
+   turn's seconds are made of). `BOTBASE_MAX_OUTPUT_TOKENS` (default 8192)
+   caps one model reply including thinking; `BOTBASE_LLM_RETRIES` (default 4)
+   retries rate limits and transient errors with backoff. The summarizer's
+   read budget is 4 searches + 3 examines per run, each examine capped at
+   `SUMMARIZER_EXAMINE_CHARS` (default 12000). `llama_cpp` talks to `LLAMA_CPP_URL` (default
+   `http://localhost:8080/v1`); `gemini` needs `GOOGLE_API_KEY` and uses
+   `GEMINI_MODEL` (default `gemini-2.5-flash`).
 
 3. Import your resources (requires `sentence-transformers`, `hnswlib`, `torch`):
    ```bash
@@ -205,22 +231,41 @@ afterwards so it picks up the updated indexes.
 card in the chat and opens the lesson in the content viewer next to the
 conversation (`provide_file` stays reserved for actual files).
 
+**PDFs are never sent.** `provide_file` refuses `pdf` resources
+(`UNSERVED_SOURCE_TYPES` in `tools/provide_file.py`) and tells the bot to
+have the content read instead: in the multi architecture the coach asks
+the library summarizer (`ask_library`), which examines the resource's
+`full_transcript` and returns a summary the coach relays; in the single
+architecture the bot calls `examine_resource` itself. Summaries flag such
+resources with `deliverable: false`. Audio, video and docx/pptx files are
+still delivered as before.
+
 ## Multi-Agent Architecture
 
 The design follows the prototype path in `multi-agent-paradigms-2026.md` §6: a supervisor topology one level deep, split along **context boundaries** rather than job titles.
+
+**On ADK.** Each agent is an ADK `LlmAgent` (`adk_app/agents.py`); the framework owns the model loop, function calling, sessions and callbacks:
+
+- A chat is an ADK session (session id = chat id, `InMemorySessionService`), so history lives server-side. The client's `fullContext` is only used to seed a session the server has never seen. `adk_app/history.py` renders the session's events back into the message list the frontend expects.
+- The tool plugins in `tools/` are unchanged: `adk_app/tools.py` wraps each one as an ADK `BaseTool` whose declaration is the plugin's existing JSON schema, and runs `execute` with the per-turn context dict (`adk_app/turns.py`) on a single-worker thread — sequential tool semantics, and the embedding client's SQLite connection stays on one thread. The plugins' loop-control flags map onto ADK: `finish_turn` / `return_summary` / `record_memories` end an invocation via `skip_summarization`; `switch_mode` writes the new mode into session state, and the coach's instruction is a provider that recomputes the prompt from that state on every model call.
+- The summarizer and memory agent are not ADK sub-agents (that would share the coach's session and expose `transfer_to_agent`); `adk_app/subagents.py` runs each spawn on its own `Runner` with a fresh session, which is the context isolation the brief asks for. `ask_library` is the ADK tool that awaits such a run.
+- Iteration caps become `RunConfig(max_llm_calls=…)` (coach 20, summarizer 8, memory 3). An agent that ends a run without its terminal tool gets one reminder turn, hidden from the exported history.
+- **Text replies.** The coach's plain text (outside thinking and tool calls) is delivered to the user as its reply through the same path as `send_message` (repeat guard, `has_responded`, queue), and a text-only response ends the turn — `send_message` / `finish_turn` still work but are optional. This suits models with proper reasoning separation; `BOTBASE_TEXT_REPLIES=0` restores the older rule where only `send_message` reaches the user and stray text is discarded (the frontend reads the mode from `/api/topics`).
+- Tracing is an ADK plugin (`adk_app/tracing.py`) attached to every runner: model output, tool calls and results stream to the debug sub-pane of whichever agent is running, and persist to `trace_log`.
+- Models come from `adk_app/models.py`: `LiteLlm` for OpenRouter and llama.cpp, ADK's native Gemini client for `gemini`. `SUMMARIZER_MODEL` / `MEMORY_MODEL` still pick a different model per helper.
 
 **Coach (orchestrator, user-facing).** The existing topic-bot loop re-prompted with a multi-agent overlay. It owns the conversation and every user-facing action (`send_message`, `provide_file`, `open_course_page`, `switch_mode`, `finish_turn`) — writes stay single-threaded. Instead of searching the library itself, it delegates via two tools:
 
 - **`ask_library(question)`** — spawns a fresh **summarizer** run and returns its structured summary.
 - **`memory_search(query)`** — keyword search over past-session logs.
 
-**Summarizer (read-only explorer).** A second instance of the same loop machinery with its own context window and a read-only toolset (`search_resources`, `examine_resource`). It must finish by calling `return_summary`, which enforces a fixed output contract — `answer`, `key_points`, `resources` (ids validated against what the run actually retrieved), `confidence`, `notes` — stamped with `source` + `timestamp`. Retrieved resources are merged back into the coach's context so the cited ids resolve in `provide_file` / `open_course_page`. Effort is capped (8 tool calls) with scaling rules in the prompt. Set `SUMMARIZER_MODEL` in `.env` to run it on a cheaper model.
+**Summarizer (read-only explorer).** A second `LlmAgent` with its own session per spawn and a read-only toolset (`search_resources`, `examine_resource`). It must finish by calling `return_summary`, which enforces a fixed output contract — `answer`, `key_points`, `resources` (ids validated against what the run actually retrieved), `confidence`, `notes` — stamped with `source` + `timestamp`. Retrieved resources are merged back into the coach's context so the cited ids resolve in `provide_file` / `open_course_page`. Effort is capped (8 tool calls) with scaling rules in the prompt. Set `SUMMARIZER_MODEL` in `.env` to run it on a cheaper model.
 
 **User profiles.** The demo opens with a profile picker: select an existing profile or create a new one. All memory — injection, search, and writes — is scoped to the active profile (`user_id` travels with every chat request and is sticky per chat session server-side). No profile → no memory, so the single-agent baseline and simulator runs stay memory-free.
 
 **Memory (template store + memory agent).** Privacy-first by construction: the store cannot hold free text. A memory is a template key from `memory_templates.py` plus validated slot values, where every slot is an enum from a fixed vocabulary (skills, assessments, stressor areas, event types, timeframes, …) or a reference to a library resource. Nothing the user literally said is ever persisted.
 
-- *Write path* — after each completed coach turn, the **memory agent** (a third sub-agent, `memory_agent.py`) reads the turn's conversational surface plus the profile's existing notes and must answer through the `record_memories` tool, whose schema only admits registered templates (structured generation). Rejected entries bounce back with the reason so the model can retry; an empty list is a normal outcome. `MemoryStore.add_memories` re-validates and remains the single writer. Set `MEMORY_MODEL` in `.env` to run it on a cheaper model.
+- *Write path* — after each completed coach turn, the **memory agent** (a third `LlmAgent`, run from `adk_app/subagents.py`) reads the turn's conversational surface plus the profile's existing notes and must answer through the `record_memories` tool, whose schema only admits registered templates (structured generation). Rejected entries bounce back with the reason so the model can retry; an empty list is a normal outcome. `MemoryStore.add_memories` re-validates and remains the single writer. Set `MEMORY_MODEL` in `.env` to run it on a cheaper model.
 - *Templates* — grounded in the tool's three primary uses: **stress/coping** (`stress_reported`, `skill_introduced`, `skill_practiced`, `practice_commitment`, `assessment_result`), **task performance** (`upcoming_event`, `event_outcome`, `goal_set`), **distress** (`distress_supported` — records that distress was recognized and what support was given, never the details), plus continuity glue (`topic_discussed`, `resource_shared`, `preference_noted`). Some templates are flagged as follow-ups and surface first in the snapshot so the coach picks them up next session.
 - *Read path* — the `memory_search` tool (pull, on the coach's initiative) over the profile's rendered notes.
 - *Always-injected* — one hard-capped MEMORY SNAPSHOT block per turn: session count, open follow-ups, recent notes, all rendered deterministically from the stored templates.
@@ -237,5 +282,5 @@ Deliberately deferred (per the brief): proactive push channels, conflict detecti
 ## Customization
 
 - **System prompt**: Edit `prompts/default.py` or create a new profile.
-- **LLM backend**: Swap the import in `agent.py` or add a new adapter in `LMInterface/`.
+- **LLM backend**: `--backend` at startup; add a new recipe to `BACKENDS` / `make_model` in `adk_app/models.py` (anything LiteLLM supports is a one-liner).
 - **Tools**: Drop new tool files into `tools/` and add them to a toolset.

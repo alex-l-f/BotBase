@@ -45,7 +45,7 @@ MEMORY_AGENT = "memory"
 # Per-invocation LLM call caps: the termination backstops the old loops
 # enforced with their iteration counters (one model call per iteration).
 COACH_MAX_LLM_CALLS = 20
-SUMMARIZER_MAX_LLM_CALLS = 8
+SUMMARIZER_MAX_LLM_CALLS = 12  # every budgeted tool call (subagents.py) + return_summary
 MEMORY_MAX_LLM_CALLS = 3
 
 

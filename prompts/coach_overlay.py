@@ -7,7 +7,52 @@ definition here is deliberate — ambiguous roles are the largest MAST failure
 category (see multi-agent-paradigms-2026.md §4, §7).
 """
 
+import re
+
 from .topics import ROUTER_MODE
+
+# The topic prompts are written for the single-agent tool surface. For the
+# coach, the search/examine bullets in their TOOL USAGE sections become one
+# ask_library bullet and every remaining mention of those tools points at
+# ask_library, so the body of the prompt never tells the coach to call a
+# tool it doesn't have (an override at the end loses to fifteen mentions
+# above it).
+_RESEARCH_BULLET = re.compile(
+    r"^- \*\*(?:search_resources|examine_resource)\*\* — .*\n", re.M)
+
+_ASK_LIBRARY_BULLET = (
+    "- **ask_library** — your only research tool here. It hands a "
+    "self-contained question to the library summarizer, which searches "
+    "this topic's library and reads the transcripts for you. Put into the "
+    "question what you would have searched for (the user's situation, in "
+    "their words) and what you need back (a definition, the steps, which "
+    "resources to deliver).\n"
+)
+
+
+def adapt_for_coach(prompt: str) -> str:
+    """Re-map a topic prompt's research-tool guidance onto ask_library."""
+    seen = False
+
+    def one_bullet(_match):
+        nonlocal seen
+        if seen:
+            return ""
+        seen = True
+        return _ASK_LIBRARY_BULLET
+
+    prompt = _RESEARCH_BULLET.sub(one_bullet, prompt)
+    prompt = prompt.replace("(`examine_resource` → `full_transcript`)",
+                            "(via `ask_library`)")
+    # The router's list of tools that belong to the topic modes: the two
+    # research tools aren't presented to the coach at all, so naming them
+    # — even as "do not call" — would only put the idea in its head.
+    prompt = prompt.replace(
+        "`search_resources`, `examine_resource`, `provide_file`",
+        "`provide_file`")
+    return re.sub(r"`(?:examine_resource|search_resources)`",
+                  "`ask_library`", prompt)
+
 
 _COACH_OVERLAY = """
 
@@ -19,8 +64,6 @@ You are the **coach** — the orchestrator of a small multi-agent system and the
 
 - a **library summarizer**: a read-only research agent over this topic's resource library, reached through `ask_library`
 - a **memory store** of structured notes from the user's past sessions, reached through `memory_search`
-
-You do NOT call `search_resources` or `examine_resource` yourself — those tools now belong to the summarizer. Wherever the guidance above says to search or examine the library, call `ask_library` instead.
 
 **ask_library**
 - Ask one specific, self-contained question (e.g. "Which resources explain the physiology of the stress response, and what do they say?"). The summarizer cannot see the conversation, so include everything it needs.

@@ -32,8 +32,8 @@ def get_prompt(profile_name: str | None = None, arch: str = "single") -> str:
         from .tone import TONE
         prompt = prompt + TONE
     if arch == "multi" and name in TOPICS:
-        from .coach_overlay import overlay_for
-        prompt = prompt + overlay_for(name)
+        from .coach_overlay import adapt_for_coach, overlay_for
+        prompt = adapt_for_coach(prompt) + overlay_for(name)
     return prompt
 
 

@@ -17,6 +17,7 @@ old loop machinery, so it is re-implemented here on top of an ADK sub-run.
 """
 
 import asyncio
+import logging
 
 from google.adk.tools.base_tool import BaseTool
 from google.genai import types
@@ -120,8 +121,19 @@ class LegacyTool(BaseTool):
             budgets[self.name] -= 1
 
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            turn["executor"], self._tool.execute, dict(args), turn)
+        try:
+            result = await loop.run_in_executor(
+                turn["executor"], self._tool.execute, dict(args), turn)
+        except Exception as exc:
+            # A failing tool (embedding service down, bad row, ...) is a
+            # result the model can react to, not the end of the turn.
+            logging.getLogger(__name__).warning(
+                "%s failed: %s", self.name, exc, exc_info=True)
+            result = (
+                f"ERROR: {self.name} failed ({type(exc).__name__}: "
+                f"{str(exc)[:200]}). Continue without it or tell the user "
+                "that part is unavailable right now."
+            )
 
         # Per-tool result caps (turn["result_caps"], name -> chars): keep
         # one oversized document from filling the agent's whole context.

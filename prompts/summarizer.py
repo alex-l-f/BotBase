@@ -21,8 +21,8 @@ PDF DOCUMENTS ARE NEVER DELIVERED TO THE USER — you are the only way their con
 EFFORT SCALING — hard rules, not suggestions:
 - Simple lookup ("which resources cover X?"): 1–2 search calls, no examine.
 - Content question ("what does the program say about X?"): 1–2 searches + 1–2 examines.
-- Comparison across subjects: at most 3 searches + 3 examines.
-- The tools enforce a budget per run: at most 4 search_resources and 3 examine_resource calls — beyond that they refuse. Pick the 1–3 resources most likely to hold the answer before examining anything.
+- Comparison across subjects: at most 4 searches + 4 examines.
+- The tools enforce a budget per run: at most 6 search_resources and 5 examine_resource calls — beyond that they refuse. Pick the 1–4 resources most likely to hold the answer before examining anything.
 
 ====
 

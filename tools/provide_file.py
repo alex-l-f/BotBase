@@ -1,10 +1,56 @@
 from .base import BaseTool
+from .resource_targets import file_problem
 
 # Document types the bot never hands to the user. Their content reaches the
 # conversation by being read instead: the library summarizer (multi arch)
 # or the bot itself (single arch) examines the resource's transcript and
 # explains it. Enforced here, at the tool layer, not by prompt goodwill.
 UNSERVED_SOURCE_TYPES = frozenset({"pdf"})
+
+
+def not_found_message(resource_id: str, context: dict) -> str:
+    # The coach has no search_resources; point it at the tool it does have.
+    source = "ask_library" if context.get("arch") == "multi" else "search_resources"
+    library = context.get("database")
+    where = f"the active topic library ({library})" if library else "any active topic library"
+    return (
+        f"ERROR: Resource {resource_id} does not exist in {where}, so "
+        f"nothing was shown to the user. Use only ids that {source} "
+        "returned for this topic."
+    )
+
+
+def unavailable_message(kind: str, resource_id: str, resource: dict,
+                        problem: str) -> str:
+    title = resource.get("title") or resource_id
+    return (
+        f"ERROR: {kind} {resource_id} ('{title}') can't be shown: {problem}. "
+        "Nothing was shown to the user, so don't refer to it as on screen "
+        "(briefly correct yourself if you already introduced it) and "
+        "continue without it."
+    )
+
+
+def unserved_message(resource_id: str, resource: dict, context: dict) -> str:
+    source_type = (resource.get("source_type") or "").lower()
+    title = resource.get("title") or resource_id
+    if context.get("arch") == "multi":
+        how = (
+            "call ask_library with a question that names it (e.g. "
+            f"\"What does '{title}' say about ...?\"). The library "
+            "summarizer reads its transcript and returns a summary "
+            "for you to relay in your own words."
+        )
+    else:
+        how = (
+            f"call examine_resource on {resource_id}, read its "
+            "full_transcript, and explain the content in your own "
+            "words."
+        )
+    return (
+        f"ERROR: {source_type.upper()} documents are not sent to "
+        f"the user, so '{title}' was NOT delivered. Instead, {how}"
+    )
 
 
 def _lookup_resource(resource_id: str, context: dict) -> dict | None:
@@ -94,10 +140,7 @@ class ProvideFile(BaseTool):
 
         resource = _lookup_resource(resource_id, context)
         if resource is None:
-            return (
-                f"ERROR: Could not find resource {resource_id}. "
-                "Search first with search_resources."
-            )
+            return not_found_message(resource_id, context)
 
         if (resource.get("source_type") or "") == "course_page":
             return (
@@ -108,28 +151,12 @@ class ProvideFile(BaseTool):
 
         source_type = (resource.get("source_type") or "").lower()
         if source_type in UNSERVED_SOURCE_TYPES:
-            title = resource.get("title") or resource_id
-            if context.get("arch") == "multi":
-                how = (
-                    "call ask_library with a question that names it (e.g. "
-                    f"\"What does '{title}' say about ...?\"). The library "
-                    "summarizer reads its transcript and returns a summary "
-                    "for you to relay in your own words."
-                )
-            else:
-                how = (
-                    f"call examine_resource on {resource_id}, read its "
-                    "full_transcript, and explain the content in your own "
-                    "words."
-                )
-            return (
-                f"ERROR: {source_type.upper()} documents are not sent to "
-                f"the user, so '{title}' was NOT delivered. Instead, {how}"
-            )
+            return unserved_message(resource_id, resource, context)
 
         url = resource.get("portalURL") or resource.get("portal_url") or ""
-        if not url:
-            return f"ERROR: Resource {resource_id} has no portal_url."
+        problem = file_problem(resource) if url else "it has no download link"
+        if problem:
+            return unavailable_message("File", resource_id, resource, problem)
 
         chat_id = context.get("chat_id")
         message_queues = context.get("message_queues") or {}

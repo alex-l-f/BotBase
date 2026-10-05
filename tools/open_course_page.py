@@ -1,5 +1,12 @@
 from .base import BaseTool
-from .provide_file import _lookup_resource
+from .provide_file import (
+    UNSERVED_SOURCE_TYPES,
+    _lookup_resource,
+    not_found_message,
+    unavailable_message,
+    unserved_message,
+)
+from .resource_targets import course_page_problem
 
 
 class OpenCoursePage(BaseTool):
@@ -53,21 +60,25 @@ class OpenCoursePage(BaseTool):
 
         resource = _lookup_resource(resource_id, context)
         if resource is None:
-            return (
-                f"ERROR: Could not find resource {resource_id}. "
-                "Search first with search_resources."
-            )
+            return not_found_message(resource_id, context)
 
-        if (resource.get("source_type") or "") != "course_page":
+        source_type = (resource.get("source_type") or "").lower()
+        if source_type != "course_page":
+            # Skip the provide_file detour for types that are never shown.
+            if source_type in UNSERVED_SOURCE_TYPES:
+                return unserved_message(resource_id, resource, context)
             return (
                 f"ERROR: Resource {resource_id} is a "
                 f"'{resource.get('source_type') or 'file'}' resource, not a "
                 "course page. Use provide_file to send files."
             )
 
+        # Checked before anything reaches the frontend: the viewer opens the
+        # moment the payload arrives, so a dead link would greet the user.
         url = resource.get("portalURL") or resource.get("portal_url") or ""
-        if not url:
-            return f"ERROR: Course page {resource_id} has no URL."
+        problem = course_page_problem(url)
+        if problem:
+            return unavailable_message("Course page", resource_id, resource, problem)
 
         chat_id = context.get("chat_id")
         message_queues = context.get("message_queues") or {}
