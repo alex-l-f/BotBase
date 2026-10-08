@@ -2,7 +2,7 @@ import importlib
 import logging
 
 from .profiles import PROFILES
-from .topics import TOPICS
+from .topics import ROUTER_MODE, TOPICS
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +18,8 @@ def get_prompt(profile_name: str | None = None, arch: str = "single") -> str:
 
     Falls back to the default profile when *profile_name* is None or unknown.
     When arch == "multi", topic profiles get the coach overlay appended so
-    the prompt matches the delegation toolset.
+    the prompt matches the delegation toolset, and the content topics get
+    the coach's role statement in front.
     """
     name = profile_name or _DEFAULT_PROFILE
     if name not in PROFILES:
@@ -32,8 +33,10 @@ def get_prompt(profile_name: str | None = None, arch: str = "single") -> str:
         from .tone import TONE
         prompt = prompt + TONE
     if arch == "multi" and name in TOPICS:
-        from .coach_overlay import adapt_for_coach, overlay_for
+        from .coach_overlay import COACH_ROLE, adapt_for_coach, overlay_for
         prompt = adapt_for_coach(prompt) + overlay_for(name)
+        if name != ROUTER_MODE:
+            prompt = COACH_ROLE + prompt
     return prompt
 
 

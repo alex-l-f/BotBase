@@ -20,3 +20,5 @@ processed_resources/*
 Elearningcourse/
 simulator/simulator.db*
 simulator/.env
+tests/
+tools_scripts/
